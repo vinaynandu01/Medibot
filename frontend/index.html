@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Medibot - Medication Delivery Rover System</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="css/dashboard.css">
+    <link rel="stylesheet" href="css/map.css">
+    <link rel="stylesheet" href="css/patients.css">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-content">
+            <div class="logo">
+                <h1>🤖 MEDIBOT</h1>
+                <p class="tagline">Medication Delivery Rover System</p>
+            </div>
+            <div class="header-status">
+                <div class="status-indicator" id="roverStatus">
+                    <span class="status-dot" id="statusDot"></span>
+                    <span id="statusText">Disconnected</span>
+                </div>
+                <div class="battery-indicator">
+                    <span>Battery:</span>
+                    <div class="battery-bar">
+                        <div class="battery-level" id="batteryLevel" style="width: 100%"></div>
+                    </div>
+                    <span id="batteryText">100%</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Dashboard Grid -->
+    <main class="dashboard-grid">
+
+        <!-- Connection Panel -->
+        <section class="card connection-panel" id="connectionPanel">
+            <div class="card-header">
+                <h2>Rover Connection</h2>
+            </div>
+            <div class="card-body">
+                <div class="connection-form">
+                    <div class="form-group">
+                        <label for="roverIP">Rover IP Address:</label>
+                        <input type="text" id="roverIP" value="192.168.1.100" placeholder="192.168.1.100">
+                    </div>
+                    <div class="button-group">
+                        <button id="connectBtn" class="btn btn-primary">Connect</button>
+                        <button id="disconnectBtn" class="btn btn-secondary" disabled>Disconnect</button>
+                    </div>
+                </div>
+                <div class="connection-status" id="connectionMessage"></div>
+            </div>
+        </section>
+
+        <!-- Camera Feed -->
+        <section class="card camera-feed">
+            <div class="card-header">
+                <h2>Live Camera Feed</h2>
+                <button class="btn btn-small" id="snapshotBtn">📸 Snapshot</button>
+            </div>
+            <div class="card-body">
+                <div class="video-container" id="videoContainer">
+                    <img id="cameraFeed" src="" alt="Camera feed" style="display: none;">
+                    <div class="no-feed" id="noFeed">
+                        <p>📹 No camera feed</p>
+                        <p class="help-text">Connect to rover to view live feed</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Map Visualization -->
+        <section class="card map-panel">
+            <div class="card-header">
+                <h2>Navigation Map</h2>
+                <div class="map-controls">
+                    <button class="btn btn-small" id="zoomInBtn">+</button>
+                    <button class="btn btn-small" id="zoomOutBtn">−</button>
+                    <button class="btn btn-small" id="resetViewBtn">Reset</button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="map-container">
+                    <canvas id="mapCanvas"></canvas>
+                    <div class="map-legend">
+                        <div class="legend-item">
+                            <span class="legend-dot" style="background: black;"></span>
+                            <span>Feature Points</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-dot" style="background: #4CAF50;"></span>
+                            <span>Keyframes</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-dot" style="background: #2196F3;"></span>
+                            <span>Rover Position</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-dot" style="background: #FF5722;"></span>
+                            <span>Target</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="map-info">
+                    <p>Current Position: <span id="currentPos">Unknown</span></p>
+                    <p>Target Keyframe: <span id="targetKF">None</span></p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Rover Controls -->
+        <section class="card controls-panel">
+            <div class="card-header">
+                <h2>Rover Controls</h2>
+            </div>
+            <div class="card-body">
+                <div class="joystick-container">
+                    <button class="control-btn" id="forwardBtn" disabled>▲</button>
+                    <div class="control-row">
+                        <button class="control-btn" id="leftBtn" disabled>◄</button>
+                        <button class="control-btn stop-btn" id="stopBtn" disabled>■</button>
+                        <button class="control-btn" id="rightBtn" disabled>►</button>
+                    </div>
+                    <button class="control-btn" id="backwardBtn" disabled>▼</button>
+                </div>
+                <div class="control-info">
+                    <p class="help-text">Use arrow buttons to manually control the rover</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Patient List -->
+        <section class="card patients-panel">
+            <div class="card-header">
+                <h2>Patients</h2>
+                <button class="btn btn-primary btn-small" id="addPatientBtn">+ Add Patient</button>
+            </div>
+            <div class="card-body">
+                <div class="patients-list" id="patientsList">
+                    <!-- Patient cards will be dynamically added here -->
+                </div>
+            </div>
+        </section>
+
+        <!-- Monitoring Dashboard -->
+        <section class="card monitoring-panel">
+            <div class="card-header">
+                <h2>System Monitor</h2>
+            </div>
+            <div class="card-body">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon">📦</div>
+                        <div class="stat-content">
+                            <div class="stat-value" id="deliveryCount">0</div>
+                            <div class="stat-label">Total Deliveries</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">👥</div>
+                        <div class="stat-content">
+                            <div class="stat-value" id="patientCount">0</div>
+                            <div class="stat-label">Active Patients</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">📍</div>
+                        <div class="stat-content">
+                            <div class="stat-value" id="currentKF">-</div>
+                            <div class="stat-label">Current Keyframe</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">⏱️</div>
+                        <div class="stat-content">
+                            <div class="stat-value" id="uptime">00:00:00</div>
+                            <div class="stat-label">System Uptime</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="activity-log">
+                    <h3>Recent Activity</h3>
+                    <div class="log-container" id="activityLog">
+                        <p class="log-entry">System initialized</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Modal for Adding/Editing Patients -->
+    <div class="modal" id="patientModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitle">Add New Patient</h2>
+                <button class="close-btn" id="closeModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="patientForm">
+                    <div class="form-group">
+                        <label for="patientName">Patient Name:</label>
+                        <input type="text" id="patientName" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="roomNumber">Room Number:</label>
+                        <input type="text" id="roomNumber" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="medication">Medication:</label>
+                        <input type="text" id="medication" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="schedule">Schedule:</label>
+                        <input type="text" id="schedule" placeholder="e.g., 3 times daily">
+                    </div>
+                    <div class="form-group">
+                        <label for="keyframeSelect">Location (Keyframe):</label>
+                        <select id="keyframeSelect">
+                            <option value="">Not assigned</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="notes">Notes:</label>
+                        <textarea id="notes" rows="3"></textarea>
+                    </div>
+                    <div class="button-group">
+                        <button type="submit" class="btn btn-primary">Save Patient</button>
+                        <button type="button" class="btn btn-secondary" id="cancelBtn">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="js/config.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/map.js"></script>
+    <script src="js/patients.js"></script>
+    <script src="js/dashboard.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>

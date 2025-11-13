@@ -1,0 +1,258 @@
+/*
+ * Patients Panel Styles
+ */
+
+/* ============= Patients List ============= */
+.patients-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: var(--spacing-md);
+    max-height: 500px;
+    overflow-y: auto;
+    padding-right: var(--spacing-xs);
+}
+
+/* Custom scrollbar */
+.patients-list::-webkit-scrollbar {
+    width: 8px;
+}
+
+.patients-list::-webkit-scrollbar-track {
+    background: var(--gray-100);
+    border-radius: var(--radius-sm);
+}
+
+.patients-list::-webkit-scrollbar-thumb {
+    background: var(--gray-400);
+    border-radius: var(--radius-sm);
+}
+
+.patients-list::-webkit-scrollbar-thumb:hover {
+    background: var(--gray-500);
+}
+
+/* ============= Patient Card ============= */
+.patient-card {
+    background: var(--gray-50);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-md);
+    transition: all var(--transition-fast);
+    cursor: pointer;
+}
+
+.patient-card:hover {
+    border-color: var(--primary-color);
+    box-shadow: var(--shadow-sm);
+    transform: translateY(-2px);
+}
+
+.patient-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: var(--spacing-md);
+}
+
+.patient-name {
+    font-weight: 600;
+    font-size: 1rem;
+    color: var(--gray-900);
+    margin-bottom: var(--spacing-xs);
+}
+
+.patient-room {
+    font-size: 0.8rem;
+    color: var(--gray-600);
+    background: white;
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--radius-sm);
+    display: inline-block;
+}
+
+.patient-status {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--success-color);
+    flex-shrink: 0;
+}
+
+.patient-status.no-location {
+    background: var(--warning-color);
+}
+
+.patient-details {
+    margin-bottom: var(--spacing-md);
+}
+
+.patient-detail-item {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--spacing-xs);
+    margin-bottom: var(--spacing-xs);
+    font-size: 0.85rem;
+}
+
+.patient-detail-item .icon {
+    flex-shrink: 0;
+    opacity: 0.7;
+}
+
+.patient-detail-item .label {
+    color: var(--gray-600);
+    min-width: 80px;
+}
+
+.patient-detail-item .value {
+    color: var(--gray-900);
+    font-weight: 500;
+    flex: 1;
+}
+
+.patient-notes {
+    font-size: 0.8rem;
+    color: var(--gray-600);
+    font-style: italic;
+    padding: var(--spacing-sm);
+    background: white;
+    border-radius: var(--radius-sm);
+    margin-top: var(--spacing-sm);
+    border-left: 3px solid var(--primary-light);
+}
+
+.patient-actions {
+    display: flex;
+    gap: var(--spacing-xs);
+    margin-top: var(--spacing-md);
+    padding-top: var(--spacing-md);
+    border-top: 1px solid var(--gray-200);
+}
+
+.patient-actions .btn {
+    flex: 1;
+    font-size: 0.8rem;
+    padding: var(--spacing-xs) var(--spacing-sm);
+}
+
+.patient-delivery-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.75rem;
+    color: var(--gray-600);
+    margin-top: var(--spacing-sm);
+}
+
+.delivery-count {
+    background: var(--primary-light);
+    color: var(--primary-color);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--radius-sm);
+    font-weight: 600;
+}
+
+/* ============= Empty State ============= */
+.patients-empty {
+    text-align: center;
+    padding: var(--spacing-2xl);
+    color: var(--gray-500);
+}
+
+.patients-empty .icon {
+    font-size: 4rem;
+    margin-bottom: var(--spacing-md);
+    opacity: 0.3;
+}
+
+.patients-empty h3 {
+    font-size: 1.2rem;
+    margin-bottom: var(--spacing-sm);
+    color: var(--gray-700);
+}
+
+.patients-empty p {
+    font-size: 0.9rem;
+}
+
+/* ============= Patient Modal Form ============= */
+#patientForm .form-group {
+    margin-bottom: var(--spacing-lg);
+}
+
+/* ============= Delivery Status Badges ============= */
+.delivery-status {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.delivery-status.pending {
+    background: var(--warning-color);
+    color: white;
+}
+
+.delivery-status.completed {
+    background: var(--success-color);
+    color: white;
+}
+
+.delivery-status.in-progress {
+    background: var(--primary-color);
+    color: white;
+}
+
+/* ============= Responsive ============= */
+@media (max-width: 1200px) {
+    .patients-list {
+        grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    }
+}
+
+@media (max-width: 768px) {
+    .patients-list {
+        grid-template-columns: 1fr;
+        max-height: none;
+    }
+
+    .patient-card {
+        padding: var(--spacing-sm);
+    }
+
+    .patient-actions {
+        flex-direction: column;
+    }
+
+    .patient-actions .btn {
+        width: 100%;
+    }
+}
+
+/* ============= Animation ============= */
+@keyframes slideInUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.patient-card {
+    animation: slideInUp 0.3s ease-out;
+}
+
+/* Stagger animation for multiple cards */
+.patient-card:nth-child(1) { animation-delay: 0.05s; }
+.patient-card:nth-child(2) { animation-delay: 0.1s; }
+.patient-card:nth-child(3) { animation-delay: 0.15s; }
+.patient-card:nth-child(4) { animation-delay: 0.2s; }
+.patient-card:nth-child(5) { animation-delay: 0.25s; }
