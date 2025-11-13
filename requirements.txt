@@ -1,0 +1,42 @@
+# Medibot - Medication Delivery Rover System
+# Python Dependencies
+
+# Web Framework
+flask==3.0.0
+flask-cors==4.0.0
+flask-socketio==5.3.5
+
+# WebSocket
+python-socketio==5.10.0
+python-engineio==4.8.0
+
+# Computer Vision
+opencv-python==4.8.1.78
+opencv-contrib-python==4.8.1.78
+
+# Deep Learning
+torch==2.1.1
+torchvision==0.16.1
+
+# Numerical Computing
+numpy==1.24.3
+scipy==1.11.4
+
+# Serial Communication
+pyserial==3.5
+
+# HTTP Client
+requests==2.31.0
+
+# Image Processing
+Pillow==10.1.0
+
+# Utilities
+python-dateutil==2.8.2
+
+# ASGI Server
+uvicorn==0.24.0
+gunicorn==21.2.0
+
+# Optional: For better performance
+eventlet==0.33.3

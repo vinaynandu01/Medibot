@@ -1,0 +1,62 @@
+[
+  {
+    "patient_id": "PT001",
+    "name": "John Smith",
+    "room_number": "A101",
+    "medication": "Aspirin 100mg",
+    "keyframe_id": 5,
+    "schedule": "3 times daily (8AM, 2PM, 8PM)",
+    "notes": "Blood pressure medication. Take with food.",
+    "created_at": "2025-01-10T08:00:00",
+    "last_delivery": "2025-01-13T08:00:00",
+    "delivery_count": 12
+  },
+  {
+    "patient_id": "PT002",
+    "name": "Mary Johnson",
+    "room_number": "A102",
+    "medication": "Metformin 500mg",
+    "keyframe_id": 10,
+    "schedule": "2 times daily (9AM, 9PM)",
+    "notes": "Diabetes medication. Monitor blood sugar levels.",
+    "created_at": "2025-01-08T09:00:00",
+    "last_delivery": "2025-01-13T09:00:00",
+    "delivery_count": 10
+  },
+  {
+    "patient_id": "PT003",
+    "name": "Robert Davis",
+    "room_number": "B201",
+    "medication": "Lisinopril 10mg",
+    "keyframe_id": 15,
+    "schedule": "Once daily (morning)",
+    "notes": "Hypertension medication. Check blood pressure regularly.",
+    "created_at": "2025-01-09T10:00:00",
+    "last_delivery": "2025-01-13T10:00:00",
+    "delivery_count": 8
+  },
+  {
+    "patient_id": "PT004",
+    "name": "Patricia Wilson",
+    "room_number": "B202",
+    "medication": "Atorvastatin 20mg",
+    "keyframe_id": 20,
+    "schedule": "Once daily (evening)",
+    "notes": "Cholesterol medication. Take at bedtime.",
+    "created_at": "2025-01-07T18:00:00",
+    "last_delivery": "2025-01-12T20:00:00",
+    "delivery_count": 15
+  },
+  {
+    "patient_id": "PT005",
+    "name": "Michael Brown",
+    "room_number": "C301",
+    "medication": "Levothyroxine 50mcg",
+    "keyframe_id": 25,
+    "schedule": "Once daily (morning, empty stomach)",
+    "notes": "Thyroid medication. Take 30 minutes before breakfast.",
+    "created_at": "2025-01-06T07:00:00",
+    "last_delivery": "2025-01-13T07:30:00",
+    "delivery_count": 18
+  }
+]

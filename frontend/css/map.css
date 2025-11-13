@@ -1,0 +1,204 @@
+/*
+ * Map Visualization Styles
+ */
+
+/* ============= Map Container ============= */
+.map-container {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1;
+    background: white;
+    border: 2px solid var(--gray-300);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+}
+
+#mapCanvas {
+    width: 100%;
+    height: 100%;
+    cursor: crosshair;
+}
+
+/* ============= Map Controls ============= */
+.map-controls {
+    display: flex;
+    gap: var(--spacing-xs);
+}
+
+.map-controls .btn {
+    padding: var(--spacing-xs) var(--spacing-sm);
+    min-width: 36px;
+}
+
+/* ============= Map Legend ============= */
+.map-legend {
+    position: absolute;
+    top: var(--spacing-md);
+    left: var(--spacing-md);
+    background: rgba(255, 255, 255, 0.95);
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+    backdrop-filter: blur(10px);
+    font-size: 0.75rem;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    margin-bottom: var(--spacing-xs);
+}
+
+.legend-item:last-child {
+    margin-bottom: 0;
+}
+
+.legend-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 1px solid rgba(0, 0, 0, 0.2);
+}
+
+/* ============= Map Info ============= */
+.map-info {
+    margin-top: var(--spacing-md);
+    padding: var(--spacing-md);
+    background: var(--gray-50);
+    border-radius: var(--radius-md);
+    font-size: 0.875rem;
+}
+
+.map-info p {
+    margin-bottom: var(--spacing-xs);
+}
+
+.map-info p:last-child {
+    margin-bottom: 0;
+}
+
+.map-info span {
+    font-weight: 600;
+    color: var(--primary-color);
+}
+
+/* ============= Keyframe Markers (SVG Overlays) ============= */
+.keyframe-marker {
+    fill: var(--secondary-color);
+    stroke: white;
+    stroke-width: 2;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.keyframe-marker:hover {
+    fill: var(--secondary-dark);
+    transform: scale(1.2);
+}
+
+.keyframe-marker.selected {
+    fill: var(--danger-color);
+    stroke: var(--warning-color);
+    stroke-width: 3;
+}
+
+/* ============= Rover Marker ============= */
+.rover-marker {
+    fill: var(--primary-color);
+    stroke: white;
+    stroke-width: 2;
+    animation: roverpulse 2s infinite;
+}
+
+@keyframes roverpulse {
+    0%, 100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 0.7;
+        transform: scale(1.1);
+    }
+}
+
+/* ============= Path Line ============= */
+.path-line {
+    stroke: var(--primary-color);
+    stroke-width: 2;
+    stroke-dasharray: 5, 5;
+    fill: none;
+    opacity: 0.7;
+}
+
+/* ============= Feature Points ============= */
+.feature-point {
+    fill: rgba(0, 0, 0, 0.6);
+}
+
+/* ============= Map Tooltip ============= */
+.map-tooltip {
+    position: absolute;
+    background: rgba(0, 0, 0, 0.85);
+    color: white;
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    pointer-events: none;
+    white-space: nowrap;
+    z-index: 1000;
+    opacity: 0;
+    transition: opacity var(--transition-fast);
+}
+
+.map-tooltip.visible {
+    opacity: 1;
+}
+
+/* ============= Loading Overlay ============= */
+.map-loading {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(255, 255, 255, 0.9);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: var(--spacing-md);
+}
+
+.map-loading p {
+    color: var(--gray-600);
+    font-weight: 500;
+}
+
+/* ============= Responsive ============= */
+@media (max-width: 1200px) {
+    .map-legend {
+        font-size: 0.7rem;
+        padding: var(--spacing-xs) var(--spacing-sm);
+    }
+
+    .legend-dot {
+        width: 10px;
+        height: 10px;
+    }
+}
+
+@media (max-width: 768px) {
+    .map-container {
+        aspect-ratio: 4/3;
+    }
+
+    .map-legend {
+        position: static;
+        margin-bottom: var(--spacing-md);
+    }
+
+    .map-controls {
+        justify-content: center;
+    }
+}

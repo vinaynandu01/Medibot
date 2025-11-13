@@ -1,0 +1,362 @@
+/*
+ * Dashboard Layout
+ * Modern CSS Grid with auto-fit responsive patterns
+ */
+
+/* ============= Main Dashboard Grid ============= */
+.dashboard-grid {
+    max-width: 1800px;
+    margin: 0 auto;
+    padding: var(--spacing-xl);
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: var(--spacing-lg);
+    grid-auto-rows: minmax(200px, auto);
+}
+
+/* ============= Panel Layouts using Grid Areas ============= */
+
+/* Connection Panel - Top Left */
+.connection-panel {
+    grid-column: span 4;
+    grid-row: span 1;
+}
+
+/* Camera Feed - Center Top */
+.camera-feed {
+    grid-column: span 5;
+    grid-row: span 2;
+}
+
+/* Map Panel - Right Side */
+.map-panel {
+    grid-column: span 3;
+    grid-row: span 3;
+}
+
+/* Controls Panel - Below Connection */
+.controls-panel {
+    grid-column: span 4;
+    grid-row: span 2;
+}
+
+/* Patients Panel - Center Bottom */
+.patients-panel {
+    grid-column: span 5;
+    grid-row: span 2;
+}
+
+/* Monitoring Panel - Bottom Right */
+.monitoring-panel {
+    grid-column: span 3;
+    grid-row: span 2;
+}
+
+/* ============= Connection Panel ============= */
+.connection-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+}
+
+.connection-status {
+    margin-top: var(--spacing-md);
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-radius: var(--radius-md);
+    font-size: 0.875rem;
+    text-align: center;
+}
+
+.connection-status.success {
+    background: var(--success-color);
+    color: white;
+}
+
+.connection-status.error {
+    background: var(--danger-color);
+    color: white;
+}
+
+/* ============= Camera Feed ============= */
+.video-container {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 4/3;
+    background: var(--gray-900);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#cameraFeed {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.no-feed {
+    color: var(--gray-500);
+    text-align: center;
+}
+
+.no-feed p:first-child {
+    font-size: 3rem;
+    margin-bottom: var(--spacing-sm);
+}
+
+/* ============= Rover Controls ============= */
+.joystick-container {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--spacing-sm);
+    max-width: 300px;
+    margin: 0 auto;
+}
+
+.control-btn {
+    aspect-ratio: 1;
+    background: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: var(--radius-lg);
+    font-size: 2rem;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    box-shadow: var(--shadow-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.control-btn:hover:not(:disabled) {
+    background: var(--primary-dark);
+    transform: scale(1.05);
+    box-shadow: var(--shadow-md);
+}
+
+.control-btn:active:not(:disabled) {
+    transform: scale(0.95);
+}
+
+.control-btn:disabled {
+    background: var(--gray-400);
+    cursor: not-allowed;
+}
+
+.stop-btn {
+    background: var(--danger-color);
+}
+
+.stop-btn:hover:not(:disabled) {
+    background: #D32F2F;
+}
+
+#forwardBtn {
+    grid-column: 2;
+}
+
+#backwardBtn {
+    grid-column: 2;
+}
+
+.control-row {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--spacing-sm);
+}
+
+.control-info {
+    margin-top: var(--spacing-lg);
+    text-align: center;
+}
+
+/* ============= Monitoring Stats ============= */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-xl);
+}
+
+.stat-card {
+    background: linear-gradient(135deg, var(--primary-light), white);
+    padding: var(--spacing-md);
+    border-radius: var(--radius-lg);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    transition: transform var(--transition-fast);
+}
+
+.stat-card:hover {
+    transform: translateY(-2px);
+}
+
+.stat-icon {
+    font-size: 2rem;
+    flex-shrink: 0;
+}
+
+.stat-content {
+    flex: 1;
+}
+
+.stat-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--primary-color);
+    line-height: 1;
+    margin-bottom: var(--spacing-xs);
+}
+
+.stat-label {
+    font-size: 0.75rem;
+    color: var(--gray-600);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* ============= Activity Log ============= */
+.activity-log h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: var(--spacing-md);
+    color: var(--gray-700);
+}
+
+.log-container {
+    background: var(--gray-50);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    max-height: 300px;
+    overflow-y: auto;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+}
+
+.log-entry {
+    padding: var(--spacing-xs) 0;
+    border-bottom: 1px solid var(--gray-200);
+    color: var(--gray-700);
+}
+
+.log-entry:last-child {
+    border-bottom: none;
+}
+
+.log-entry.error {
+    color: var(--danger-color);
+}
+
+.log-entry.success {
+    color: var(--success-color);
+}
+
+.log-entry.info {
+    color: var(--primary-color);
+}
+
+/* ============= Responsive Breakpoints ============= */
+
+/* Tablet (768px - 1200px) */
+@media (max-width: 1200px) {
+    .dashboard-grid {
+        grid-template-columns: repeat(8, 1fr);
+    }
+
+    .connection-panel {
+        grid-column: span 8;
+    }
+
+    .camera-feed {
+        grid-column: span 5;
+    }
+
+    .map-panel {
+        grid-column: span 3;
+        grid-row: span 2;
+    }
+
+    .controls-panel {
+        grid-column: span 3;
+    }
+
+    .patients-panel {
+        grid-column: span 5;
+    }
+
+    .monitoring-panel {
+        grid-column: span 8;
+    }
+}
+
+/* Mobile (< 768px) */
+@media (max-width: 768px) {
+    .dashboard-grid {
+        grid-template-columns: 1fr;
+        padding: var(--spacing-md);
+        gap: var(--spacing-md);
+    }
+
+    .connection-panel,
+    .camera-feed,
+    .map-panel,
+    .controls-panel,
+    .patients-panel,
+    .monitoring-panel {
+        grid-column: 1;
+        grid-row: auto;
+    }
+
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .joystick-container {
+        max-width: 250px;
+    }
+
+    .control-btn {
+        font-size: 1.5rem;
+    }
+}
+
+/* Small Mobile (< 480px) */
+@media (max-width: 480px) {
+    .dashboard-grid {
+        padding: var(--spacing-sm);
+    }
+
+    .card-body {
+        padding: var(--spacing-md);
+    }
+
+    .stats-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .joystick-container {
+        max-width: 200px;
+    }
+}
+
+/* ============= Print Styles ============= */
+@media print {
+    .header,
+    .controls-panel,
+    .connection-panel {
+        display: none;
+    }
+
+    .dashboard-grid {
+        display: block;
+    }
+
+    .card {
+        break-inside: avoid;
+        margin-bottom: var(--spacing-lg);
+    }
+}

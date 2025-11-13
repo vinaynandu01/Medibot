@@ -1,0 +1,1413 @@
+# ===============================================================================
+# TUNED SLAM: DISTANCE-BASED KEYFRAME SELECTION
+# ===============================================================================
+# Changes:
+# 1. Distance-based cooldown: Keyframe every 0.2m instead of frame-based
+# 2. Forward motion distance: 0.004m → 0.008m per frame
+# ===============================================================================
+
+import cv2
+import torch
+import math
+import numpy as np
+import time
+import os
+import pickle
+import requests
+from collections import defaultdict, deque
+import json
+
+# =============== Configuration ===============
+try:
+    DEPTH_SCALE = np.load("depth_scale_factor.npy").item()
+except Exception:
+    DEPTH_SCALE = 5.0
+
+print("🔧 Initializing MiDaS...")
+midas = torch.hub.load("intel-isl/MiDaS", "MiDaS_small")
+midas_transforms = torch.hub.load("intel-isl/MiDaS", "transforms")
+transform = midas_transforms.small_transform
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+midas.to(device).eval()
+
+if torch.cuda.is_available():
+    print(f"✅ CUDA - GPU: {torch.cuda.get_device_name(0)}")
+else:
+    print("⚠️ CPU MODE")
+
+class MapBuilder:
+    def __init__(self):
+        self.keyframes = {}  # Store all keyframes
+        self.keyframe_directions = {}  # Store direction to next keyframe
+    
+    def add_keyframe(self, frame_id, position, orientation, features, descriptors):
+        """Add a new keyframe to the map with direction to next keyframe"""
+        keyframe = {
+            'id': frame_id,
+            'position': position.copy(),
+            'orientation': orientation.copy(),
+            'features': features,
+            'descriptors': descriptors,
+            'timestamp': len(self.keyframes)
+        }
+        
+        # Calculate direction to next keyframe if there's a previous one
+        if len(self.keyframes) > 0:
+            prev_frame_id = list(self.keyframes.keys())[-1]
+            direction_info = self._calculate_direction_to_next(
+                self.keyframes[prev_frame_id], keyframe
+            )
+            self.keyframe_directions[prev_frame_id] = direction_info
+        
+        self.keyframes[frame_id] = keyframe
+        return keyframe
+
+    def _calculate_direction_to_next(self, prev_keyframe, next_keyframe):
+        """Calculate direction and rotation angle from previous to next keyframe"""
+        # Calculate relative position
+        rel_pos = next_keyframe['position'] - prev_keyframe['position']
+        
+        # Calculate angle difference in orientation (yaw)
+        prev_yaw = np.arctan2(prev_keyframe['orientation'][1], prev_keyframe['orientation'][0])
+        next_yaw = np.arctan2(next_keyframe['orientation'][1], next_keyframe['orientation'][0])
+        angle_diff = np.degrees(next_yaw - prev_yaw)
+        
+        # Normalize angle to [-180, 180]
+        angle_diff = (angle_diff + 180) % 360 - 180
+        
+        # Determine direction type based on movement and rotation
+        distance_moved = np.linalg.norm(rel_pos)
+        
+        # Classify the movement
+        if distance_moved > 0.1:  # Significant forward movement
+            if abs(angle_diff) < 22.5:  # Less than 22.5 degrees
+                direction = 'forward'
+                angle = 0
+            elif angle_diff > 0:  # Left rotation while moving
+                direction = 'forward_left'
+                angle = self._snap_angle(abs(angle_diff))
+            else:  # Right rotation while moving
+                direction = 'forward_right'
+                angle = self._snap_angle(abs(angle_diff))
+        else:  # Primarily rotation in place
+            if angle_diff > 0:
+                direction = 'rotate_left'
+                angle = self._snap_angle(abs(angle_diff))
+            else:
+                direction = 'rotate_right'
+                angle = self._snap_angle(abs(angle_diff))
+        
+        return {
+            'direction': direction,
+            'angle': angle,
+            'raw_angle': angle_diff,
+            'distance': distance_moved
+        }
+    
+    def _snap_angle(self, angle):
+        """Snap angle to nearest standard value (45, 90, 180)"""
+        if angle < 22.5:
+            return 0
+        elif angle < 67.5:
+            return 45
+        elif angle < 135:
+            return 90
+        else:
+            return 180
+    
+    def get_direction_to_next(self, frame_id):
+        """Get the direction information to reach next keyframe from given frame"""
+        return self.keyframe_directions.get(frame_id, None)
+    
+    def get_nearest_keyframe_direction(self, current_position, current_orientation):
+        """Get direction to move from current position to nearest keyframe"""
+        if len(self.keyframes) == 0:
+            return {'direction': 'stop', 'angle': 0, 'distance': 0, 'target_frame': None}
+        
+        # Find nearest keyframe
+        min_dist = float('inf')
+        nearest_frame_id = None
+        
+        for frame_id, keyframe in self.keyframes.items():
+            dist = np.linalg.norm(keyframe['position'] - current_position)
+            if dist < min_dist:
+                min_dist = dist
+                nearest_frame_id = frame_id
+        
+        # If very close to nearest keyframe, get direction to next keyframe
+        if min_dist < 0.5:  # Within 0.5m of keyframe
+            next_direction = self.get_direction_to_next(nearest_frame_id)
+            if next_direction:
+                return {
+                    'direction': next_direction['direction'],
+                    'angle': next_direction['angle'],
+                    'distance': next_direction['distance'],
+                    'target_frame': nearest_frame_id,
+                    'status': 'at_keyframe'
+                }
+            else:
+                # Last keyframe reached
+                return {
+                    'direction': 'stop',
+                    'angle': 0,
+                    'distance': 0,
+                    'target_frame': nearest_frame_id,
+                    'status': 'destination_reached'
+                }
+        
+        # Calculate direction to nearest keyframe
+        nearest_keyframe = self.keyframes[nearest_frame_id]
+        rel_pos = nearest_keyframe['position'] - current_position
+        
+        # Calculate required heading
+        required_yaw = np.arctan2(rel_pos[1], rel_pos[0])
+        current_yaw = np.arctan2(current_orientation[1], current_orientation[0])
+        angle_diff = np.degrees(required_yaw - current_yaw)
+        angle_diff = (angle_diff + 180) % 360 - 180
+        
+        # Determine action
+        if abs(angle_diff) > 15:  # Need to rotate first
+            if angle_diff > 0:
+                direction = 'rotate_left'
+            else:
+                direction = 'rotate_right'
+            return {
+                'direction': direction,
+                'angle': self._snap_angle(abs(angle_diff)),
+                'distance': min_dist,
+                'target_frame': nearest_frame_id,
+                'status': 'navigating'
+            }
+        else:  # Aligned, move forward
+            return {
+                'direction': 'forward',
+                'angle': 0,
+                'distance': min_dist,
+                'target_frame': nearest_frame_id,
+                'status': 'navigating'
+            }
+    
+    def print_direction_map(self):
+        """Print the direction map for debugging"""
+        print("\n=== Keyframe Direction Map ===")
+        for frame_id in sorted(self.keyframes.keys()):
+            direction_info = self.get_direction_to_next(frame_id)
+            if direction_info:
+                print(f"Frame {frame_id} -> Next: {direction_info['direction']} "
+                      f"{direction_info['angle']}° (distance: {direction_info['distance']:.2f}m)")
+        print("=" * 40)
+# =============== Stream Capture ===============
+class RoverStreamCapture:
+    def __init__(self, stream_url):
+        self.stream_url = stream_url
+        self.resp = None
+        self.bytes_buf = b""
+        self.is_opened = False
+        self._connect()
+
+    def _connect(self):
+        try:
+            self.resp = requests.get(self.stream_url, stream=True, timeout=5)
+            self.is_opened = (self.resp.status_code == 200)
+        except Exception:
+            self.is_opened = False
+
+    def isOpened(self):
+        return self.is_opened
+
+    def read(self):
+        if not self.is_opened:
+            return False, None
+        try:
+            for chunk in self.resp.iter_content(chunk_size=1024):
+                self.bytes_buf += chunk
+                a = self.bytes_buf.find(b'\xff\xd8')
+                b = self.bytes_buf.find(b'\xff\xd9')
+                if a != -1 and b != -1:
+                    jpg = self.bytes_buf[a:b+2]
+                    self.bytes_buf = self.bytes_buf[b+2:]
+                    img = cv2.imdecode(np.frombuffer(jpg, dtype=np.uint8), cv2.IMREAD_COLOR)
+                    if img is not None:
+                        return True, img
+            return False, None
+        except Exception:
+            self.is_opened = False
+            return False, None
+
+    def release(self):
+        if self.resp is not None:
+            self.resp.close()
+        self.is_opened = False
+
+# =============== Lightweight Keyframe Class ===============
+class KeyFrame:
+    def __init__(self, frame_id, pose, features_3d, descriptors, 
+                 keypoints_2d, fx, fy, cx, cy, depth_scale, max_depth):
+        self.id = frame_id
+        self.pose = pose.copy()
+        self.features_3d = features_3d
+        self.descriptors = descriptors
+        self.keypoints_2d = keypoints_2d
+        self.timestamp = time.time()
+        
+        self.fx, self.fy = fx, fy
+        self.cx, self.cy = cx, cy
+        self.depth_scale = depth_scale
+        self.max_depth = max_depth
+        
+        self.connected_keyframes = set()
+        self.map_points = []
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'pose': self.pose.tolist(),
+            'features_3d': self.features_3d,
+            'descriptors': self.descriptors.tolist() if self.descriptors is not None else None,
+            'keypoints_2d': self.keypoints_2d,
+            'timestamp': self.timestamp,
+            'fx': self.fx,
+            'fy': self.fy,
+            'cx': self.cx,
+            'cy': self.cy
+        }
+    
+    @staticmethod
+    def from_dict(data):
+        kf = KeyFrame(
+            frame_id=data['id'],
+            pose=np.array(data['pose']),
+            features_3d=data['features_3d'],
+            descriptors=np.array(data['descriptors']) if data['descriptors'] is not None else None,
+            keypoints_2d=data['keypoints_2d'],
+            fx=data['fx'],
+            fy=data['fy'],
+            cx=data['cx'],
+            cy=data['cy'],
+            depth_scale=DEPTH_SCALE,
+            max_depth=3.0
+        )
+        kf.timestamp = data['timestamp']
+        return kf
+
+# =============== Keyframe Storage Manager ===============
+class KeyframeStorageManager:
+    def __init__(self, storage_dir="keyframes_storage"):
+        self.storage_dir = storage_dir
+        if not os.path.exists(self.storage_dir):
+            os.makedirs(self.storage_dir)
+        self.index_file = os.path.join(self.storage_dir, "keyframes_index.json")
+        self.index = self._load_index()
+    
+    def _load_index(self):
+        if os.path.exists(self.index_file):
+            with open(self.index_file, 'r') as f:
+                return json.load(f)
+        return {'keyframes': {}}
+    
+    def _save_index(self):
+        with open(self.index_file, 'w') as f:
+            json.dump(self.index, f, indent=2)
+    
+    def save_keyframe(self, keyframe):
+        try:
+            filename = os.path.join(self.storage_dir, f"keyframe_{keyframe.id:06d}.pkl")
+            with open(filename, 'wb') as f:
+                pickle.dump(keyframe.to_dict(), f)
+            
+            self.index['keyframes'][str(keyframe.id)] = {
+                'filename': filename,
+                'pose': keyframe.pose.tolist(),
+                'timestamp': keyframe.timestamp,
+                'num_features': len(keyframe.features_3d)
+            }
+            
+            self._save_index()
+            return True
+        except Exception as e:
+            print(f"❌ Error saving keyframe: {e}")
+            return False
+    
+    def load_keyframe(self, kf_id):
+        try:
+            if str(kf_id) not in self.index['keyframes']:
+                return None
+            
+            filename = self.index['keyframes'][str(kf_id)]['filename']
+            with open(filename, 'rb') as f:
+                data = pickle.load(f)
+            
+            return KeyFrame.from_dict(data)
+        except Exception as e:
+            print(f"❌ Error loading keyframe: {e}")
+            return None
+
+# =============== DISTANCE-BASED KEYFRAME SLAM ===============
+class TunedFeatureTrackingSLAM:
+    """SLAM with distance-based keyframe cooldown"""
+    
+    def __init__(self, fx=500.0, fy=500.0, cx=320.0, cy=240.0,
+                 lookahead_height_ratio=0.9,
+                 min_features_per_frame=30, max_features_per_frame=150,
+                 rotation_sensitivity=3.0, feature_lifetime_frames=50,
+                 max_depth_threshold=3.0, spatial_grid_size=0.10,
+                 tracked_feature_threshold=20,
+                 distance_threshold=0.3,
+                 rotation_threshold=30.0,
+                 feature_coverage_threshold=0.6,
+                 keyframe_distance_cooldown=0.2,  # NEW: Distance-based cooldown
+                 local_map_size=10):
+        
+        # Camera params
+        self.fx, self.fy = fx, fy
+        self.cx, self.cy = cx, cy
+        self.K = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]], dtype=float)
+        
+        # Pose tracking
+        self.pose = np.zeros(3, dtype=float)
+        self.pose_at_last_keyframe = np.zeros(3, dtype=float)
+        self.keyframe_trajectory = []
+        self.path_distance = 0.0
+        self.meter_markers = []
+        
+        # Motion
+        self.motion_mode = "REST"
+        self.FIXED_FORWARD_DISTANCE = 0.008  # CHANGED: 0.004 → 0.008
+        self.ROTATION_SENSITIVITY = rotation_sensitivity
+        self.rest_frames_count = 0
+        self.rest_frames_threshold = 10
+        
+        # Features
+        self.min_features_per_frame = min_features_per_frame
+        self.max_features_per_frame = max_features_per_frame
+        self.current_feature_target = max_features_per_frame
+        self.spatial_grid_size = spatial_grid_size
+        self.spatial_grid = {}
+        self.max_map_features = 15000
+        self.feature_lifetime_frames = feature_lifetime_frames
+        self.visible_map_points = []
+        self.max_depth_threshold = max_depth_threshold
+        
+        # ============ KEYFRAME THRESHOLDS ============
+        self.tracked_feature_threshold = tracked_feature_threshold
+        self.distance_threshold = distance_threshold
+        self.rotation_threshold = math.radians(rotation_threshold)
+        self.feature_coverage_threshold = feature_coverage_threshold
+        self.keyframe_distance_cooldown = keyframe_distance_cooldown  # NEW: Distance-based
+        self.distance_at_last_keyframe = 0.0  # Track total distance at last KF
+        
+        # Feature tracking
+        self.successfully_tracked_count = 0
+        
+        # Loop closure
+        self.loop_closure_history = []
+        self.loop_closure_threshold = 0.90
+        self.loop_closure_cooldown = 0
+        self.loop_closure_cooldown_frames = 100
+        
+        # Keyframe management
+        self.storage_manager = KeyframeStorageManager()
+        self.keyframes_info = {}
+        self.current_keyframe = None
+        self.prev_keyframe = None
+        self.keyframe_counter = 0
+        self.first_frame_initialized = False
+        self.local_map_size = local_map_size
+        
+        # Map builder for navigation directions
+        self.map_builder = MapBuilder()
+        
+        # Feature detection
+        self.clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        self.orb = cv2.ORB_create(
+            nfeatures=500,
+            scaleFactor=1.2,
+            nlevels=8,
+            edgeThreshold=10,
+            firstLevel=0,
+            WTA_K=2,
+            scoreType=cv2.ORB_HARRIS_SCORE,
+            patchSize=31,
+            fastThreshold=10
+        )
+        
+        self.bf_matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
+        
+        # Depth processing
+        self.lookahead_height_ratio = lookahead_height_ratio
+        self.lookahead_pixel = None
+        self.lookahead_depth_curr = None
+        self.lookahead_world_pos = None
+        
+        # Previous frame
+        self.prev_gray = None
+        self.prev_depth = None
+        self.prev_keypoints = None
+        self.prev_descriptors = None
+        self.prev_keypoint_positions = []
+        
+        # MiDaS frame skipping
+        self.frame_count = 0
+        self.depth_frame_counter = 0
+        self.depth_compute_every_n_frames = 2
+        
+        # Statistics
+        self.current_features = []
+        self.visible_features = []
+        self.feature_counts = {'total': 0, 'valid_depth': 0, 'displayed': 0, 'stored': 0}
+        self.rotation_magnitude = 0.0
+        self.translation_magnitude = 0.0
+        
+        # Keyframe matching
+        self.matched_keyframe_id = None
+        self.keyframe_match_confidence = 0.0
+        self.matched_kf_position = None
+        
+        # Keyframe trigger reasons
+        self.last_keyframe_trigger_reason = ""
+        self.keyframe_cooldown_reason = ""
+    
+    # ======== FUNCTION 1: FEATURE EXTRACTION ========
+    def feature_extraction(self, gray, depth_map):
+        enhanced = self.clahe.apply(gray)
+        enhanced = cv2.convertScaleAbs(enhanced, alpha=1.2, beta=5)
+        
+        img_height, img_width = gray.shape
+        mask = np.zeros_like(enhanced, dtype=np.uint8)
+        h_start = int(img_height * 0.33)
+        mask[h_start:, :] = 255
+        
+        kp_orb, desc_orb = self.orb.detectAndCompute(enhanced, mask=mask)
+        
+        if kp_orb is None or desc_orb is None or len(kp_orb) == 0:
+            return [], None
+        
+        kp_desc_pairs = list(zip(kp_orb, desc_orb))
+        kp_desc_pairs.sort(key=lambda x: -x[0].response)
+        
+        n_features = min(len(kp_desc_pairs), self.max_features_per_frame)
+        kp_desc_pairs = kp_desc_pairs[:n_features]
+        
+        kp_orb = [kp for kp, _ in kp_desc_pairs]
+        desc_orb = np.array([desc for _, desc in kp_desc_pairs])
+        
+        return kp_orb, desc_orb
+    
+    # ======== FEATURE TRACKING + COVERAGE CHECK ========
+    def track_old_features(self, current_gray):
+        if self.prev_gray is None or len(self.prev_keypoint_positions) == 0:
+            self.successfully_tracked_count = 0
+            return 0, 0.0
+        
+        prev_pts = np.array(self.prev_keypoint_positions, dtype=np.float32).reshape(-1, 1, 2)
+        
+        next_pts, status, err = cv2.calcOpticalFlowPyrLK(
+            self.prev_gray, current_gray, prev_pts, None,
+            winSize=(21, 21), maxLevel=3,
+            criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.01)
+        )
+        
+        if status is None:
+            self.successfully_tracked_count = 0
+            return 0, 0.0
+        
+        successfully_tracked = np.sum(status == 1)
+        self.successfully_tracked_count = successfully_tracked
+        
+        if successfully_tracked > 0:
+            tracked_pts = next_pts[status.flatten() == 1]
+            xs = tracked_pts[:, 0, 0]
+            ys = tracked_pts[:, 0, 1]
+            
+            x_min, x_max = np.min(xs), np.max(xs)
+            y_min, y_max = np.min(ys), np.max(ys)
+            
+            tracked_area = (x_max - x_min) * (y_max - y_min)
+            image_area = current_gray.shape[0] * current_gray.shape[1]
+            coverage = tracked_area / image_area if image_area > 0 else 0.0
+            
+            return successfully_tracked, coverage
+        else:
+            return 0, 0.0
+    
+    # ======== FUNCTION 2: MAP BUILDING ========
+    def map_building(self, kp_orb, desc_orb, gray, depth_map, pose):
+        img_height, img_width = gray.shape
+        
+        valid_depth_count = 0
+        new_features = []
+        all_features = []
+        features_3d = []
+        keypoints_2d = []
+        
+        for i, kp in enumerate(kp_orb):
+            u, v = int(kp.pt[0]), int(kp.pt[1])
+            
+            if not (0 <= u < img_width and 0 <= v < img_height):
+                continue
+            
+            if depth_map is not None:
+                midas_depth = depth_map[v, u]
+                metric_depth = self._midas_to_metric_depth(midas_depth)
+            else:
+                metric_depth = None
+            
+            if metric_depth is not None and metric_depth <= self.max_depth_threshold:
+                valid_depth_count += 1
+                
+                world_pos = self._backproject_to_world(u, v, metric_depth, pose)
+                
+                if world_pos is not None:
+                    x_world, y_world, z_cam = world_pos
+                    descriptor = desc_orb[i]
+                    quality = kp.response
+                    
+                    self._add_to_spatial_grid(x_world, y_world, metric_depth,
+                                            descriptor, quality, self.frame_count)
+                    
+                    self.visible_map_points.append({
+                        'x': x_world, 'y': y_world, 'z': metric_depth,
+                        'u': u, 'v': v, 'frame': self.frame_count
+                    })
+                    
+                    new_features.append((u, v))
+                    all_features.append((u, v))
+                    features_3d.append((x_world, y_world, z_cam))
+                    keypoints_2d.append((u, v))
+        
+        self.feature_counts['total'] = len(kp_orb)
+        self.feature_counts['valid_depth'] = valid_depth_count
+        self.feature_counts['stored'] = len(self.spatial_grid)
+        
+        self._update_visible_features()
+        self.feature_counts['displayed'] = len(self.visible_map_points)
+        
+        self.current_features = all_features
+        self.visible_features = [(int(pt['u']), int(pt['v'])) for pt in self.visible_map_points]
+        
+        self._adjust_feature_target()
+        self.prev_keypoints = kp_orb
+        self.prev_descriptors = desc_orb
+        
+        self.prev_keypoint_positions = [(kp.pt[0], kp.pt[1]) for kp in kp_orb]
+        
+        return new_features, features_3d, keypoints_2d
+    
+    # ======== FUNCTION 3: LOCALIZATION ========
+    def localization_loop(self, gray, kp_orb, desc_orb):
+        if self.successfully_tracked_count < self.tracked_feature_threshold:
+            self._match_with_keyframes(desc_orb)
+        else:
+            self.matched_keyframe_id = None
+            self.keyframe_match_confidence = 0.0
+            self.matched_kf_position = None
+    
+    def _match_with_keyframes(self, desc_orb):
+        if desc_orb is None or len(self.keyframes_info) == 0:
+            return
+        
+        best_match_kf_id = None
+        best_match_count = 0
+        best_confidence = 0.0
+        best_position = None
+        
+        for kf_id_str, kf_info in self.keyframes_info.items():
+            kf_id = int(kf_id_str)
+            keyframe = self.storage_manager.load_keyframe(kf_id)
+            if keyframe is None or keyframe.descriptors is None:
+                continue
+            
+            bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
+            matches = bf.knnMatch(desc_orb, keyframe.descriptors, k=2)
+            
+            good_matches = []
+            for match in matches:
+                if len(match) == 2:
+                    m, n = match
+                    if m.distance < 0.75 * n.distance:
+                        good_matches.append(m)
+            
+            match_confidence = len(good_matches) / (len(keyframe.descriptors) + 1e-6)
+            
+            if len(good_matches) > best_match_count:
+                best_match_count = len(good_matches)
+                best_match_kf_id = kf_id
+                best_confidence = match_confidence
+                best_position = keyframe.pose.copy()
+        
+        self.matched_keyframe_id = best_match_kf_id
+        self.keyframe_match_confidence = best_confidence
+        self.matched_kf_position = best_position
+        
+        if best_match_kf_id is not None:
+            print(f"🎯 Matched with KF#{best_match_kf_id} (conf: {best_confidence*100:.1f}%)")
+    
+    # ======== FUNCTION 4: LOOP CLOSURE ========
+    def loop_closure_and_bundle_adjustment(self, depth_pattern):
+        if self._check_loop_closure(depth_pattern):
+            print("🔄 LOOP CLOSURE DETECTED")
+        
+        if depth_pattern is not None:
+            self.loop_closure_history.append((self.frame_count, depth_pattern))
+            if len(self.loop_closure_history) > 50:
+                self.loop_closure_history.pop(0)
+    
+    def _check_loop_closure(self, current_pattern):
+        if self.loop_closure_cooldown > 0:
+            self.loop_closure_cooldown -= 1
+            return False
+        
+        if current_pattern is None or len(self.loop_closure_history) < 5:
+            return False
+        
+        min_frame_gap = 100
+        current_frame = self.frame_count
+        
+        for past_frame, past_pattern in self.loop_closure_history[-20:]:
+            if current_frame - past_frame < min_frame_gap:
+                continue
+            
+            if len(current_pattern) == len(past_pattern):
+                similarity = np.corrcoef(current_pattern, past_pattern)[0, 1]
+                if not np.isnan(similarity) and similarity > self.loop_closure_threshold:
+                    self.loop_closure_cooldown = self.loop_closure_cooldown_frames
+                    return True
+        
+        return False
+    
+    # ======== Helper Methods ========
+    def _spatial_grid_key(self, x, y):
+        return (int(x / self.spatial_grid_size), int(y / self.spatial_grid_size))
+    
+    def _add_to_spatial_grid(self, x, y, z, descriptor, quality, frame):
+        key = self._spatial_grid_key(x, y)
+        if key in self.spatial_grid:
+            existing = self.spatial_grid[key]
+            if quality > existing['quality']:
+                self.spatial_grid[key] = {
+                    'x': x, 'y': y, 'z': z,
+                    'descriptor': descriptor,
+                    'quality': quality,
+                    'frame': frame
+                }
+        else:
+            if len(self.spatial_grid) < self.max_map_features:
+                self.spatial_grid[key] = {
+                    'x': x, 'y': y, 'z': z,
+                    'descriptor': descriptor,
+                    'quality': quality,
+                    'frame': frame
+                }
+    
+    def _midas_to_metric_depth(self, midas_value):
+        if midas_value < 1e-3:
+            return None
+        return DEPTH_SCALE / (midas_value + 1e-6)
+    
+    def _backproject_to_world(self, u, v, metric_depth, pose):
+        if metric_depth is None or metric_depth <= 0:
+            return None
+        
+        X_cam = (u - self.cx) * metric_depth / self.fx
+        Y_cam = (v - self.cy) * metric_depth / self.fy
+        Z_cam = metric_depth
+        
+        yaw = pose[2]
+        c, s = math.cos(yaw), math.sin(yaw)
+        
+        x_world = pose[0] + (c * Z_cam + s * X_cam)
+        y_world = pose[1] + (s * Z_cam - c * X_cam)
+        
+        return (x_world, y_world, Z_cam)
+    
+    def _extract_depth_pattern(self, depth_map, keypoints):
+        if depth_map is None or len(keypoints) < 10:
+            return None
+        
+        depths = []
+        for kp in keypoints[:20]:
+            u, v = int(kp.pt[0]), int(kp.pt[1])
+            if 0 <= v < depth_map.shape[0] and 0 <= u < depth_map.shape[1]:
+                midas_depth = depth_map[v, u]
+                metric_depth = self._midas_to_metric_depth(midas_depth)
+                if metric_depth is not None and metric_depth <= self.max_depth_threshold:
+                    depths.append(metric_depth)
+        
+        if len(depths) < 5:
+            return None
+        
+        depths = np.array(depths)
+        pattern = depths / (np.max(depths) + 1e-6)
+        return pattern
+    
+    def _adjust_feature_target(self):
+        if len(self.current_features) < self.min_features_per_frame:
+            self.current_feature_target = min(
+                self.current_feature_target + 10,
+                self.max_features_per_frame
+            )
+        elif len(self.current_features) > self.max_features_per_frame:
+            self.current_feature_target = max(
+                self.current_feature_target - 10,
+                self.min_features_per_frame
+            )
+    
+    def _update_visible_features(self):
+        self.visible_map_points = [
+            pt for pt in self.visible_map_points
+            if self.frame_count - pt['frame'] < self.feature_lifetime_frames
+        ]
+    
+    def _detect_motion_state(self, gray):
+        if self.prev_gray is None or len(self.prev_keypoint_positions) == 0:
+            return False, False
+        
+        prev_pts = np.array(self.prev_keypoint_positions, dtype=np.float32).reshape(-1, 1, 2)
+        
+        next_pts, status, _ = cv2.calcOpticalFlowPyrLK(
+            self.prev_gray, gray, prev_pts, None,
+            winSize=(21, 21), maxLevel=3,
+            criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.01)
+        )
+        
+        if status is None or np.sum(status) < 5:
+            return False, False
+        
+        good_prev = prev_pts[status.flatten() == 1]
+        good_next = next_pts[status.flatten() == 1]
+        
+        displacements_h = good_next[:, 0, 0] - good_prev[:, 0, 0]
+        displacements_v = good_next[:, 0, 1] - good_prev[:, 0, 1]
+        
+        median_h = np.median(displacements_h)
+        median_v = np.median(displacements_v)
+        
+        has_rotation = abs(median_h) > 0.5
+        has_forward_motion = median_v > 0.05
+        
+        return has_forward_motion, has_rotation
+    
+    # ======== DISTANCE-BASED KEYFRAME DECISION ========
+    def _should_create_keyframe(self, coverage):
+        """
+        Create keyframe if ANY criteria met AND distance cooldown elapsed
+        """
+        
+        # Check distance-based cooldown
+        distance_since_kf = self.path_distance - self.distance_at_last_keyframe
+        
+        if distance_since_kf < self.keyframe_distance_cooldown:
+            self.keyframe_cooldown_reason = f"Cooldown ({distance_since_kf:.3f}m/{self.keyframe_distance_cooldown:.2f}m)"
+            return False
+        
+        reasons = []
+        
+        # Criterion 1: Feature tracking
+        if self.successfully_tracked_count < self.tracked_feature_threshold:
+            reasons.append(f"Tracked {self.successfully_tracked_count} < {self.tracked_feature_threshold}")
+        
+        # Criterion 2: Distance traveled
+        dist_since_kf = math.sqrt(
+            (self.pose[0] - self.pose_at_last_keyframe[0])**2 + 
+            (self.pose[1] - self.pose_at_last_keyframe[1])**2
+        )
+        if dist_since_kf > self.distance_threshold:
+            reasons.append(f"Distance {dist_since_kf:.3f}m > {self.distance_threshold:.3f}m")
+        
+        # Criterion 3: Rotation
+        rot_since_kf = abs(self.pose[2] - self.pose_at_last_keyframe[2])
+        if rot_since_kf > math.pi:
+            rot_since_kf = 2*math.pi - rot_since_kf
+        
+        if rot_since_kf > self.rotation_threshold:
+            reasons.append(f"Rotation {math.degrees(rot_since_kf):.1f}° > {math.degrees(self.rotation_threshold):.1f}°")
+        
+        # Criterion 4: Feature coverage
+        if coverage < self.feature_coverage_threshold:
+            reasons.append(f"Coverage {coverage*100:.1f}% < {self.feature_coverage_threshold*100:.1f}%")
+        
+        if reasons:
+            self.last_keyframe_trigger_reason = " | ".join(reasons)
+            self.keyframe_cooldown_reason = ""
+            return True
+        else:
+            self.last_keyframe_trigger_reason = ""
+            self.keyframe_cooldown_reason = ""
+            return False
+    
+    def _create_keyframe(self, gray, depth_map, kp_orb, desc_orb, features_3d, keypoints_2d):
+        if self.current_keyframe is not None:
+            self.storage_manager.save_keyframe(self.current_keyframe)
+            self.keyframes_info[str(self.current_keyframe.id)] = {
+                'pose': self.current_keyframe.pose.tolist(),
+                'num_features': len(self.current_keyframe.features_3d),
+                'timestamp': self.current_keyframe.timestamp
+            }
+        
+        keyframe = KeyFrame(
+            frame_id=self.keyframe_counter,
+            pose=self.pose,
+            features_3d=features_3d,
+            descriptors=desc_orb,
+            keypoints_2d=keypoints_2d,
+            fx=self.fx, fy=self.fy, cx=self.cx, cy=self.cy,
+            depth_scale=DEPTH_SCALE,
+            max_depth=self.max_depth_threshold
+        )
+        
+        self.prev_keyframe = self.current_keyframe
+        self.current_keyframe = keyframe
+        self.pose_at_last_keyframe = self.pose.copy()
+        self.distance_at_last_keyframe = self.path_distance  # Track distance at KF
+        self.keyframe_counter += 1
+
+        self.keyframe_trajectory.append(self.pose.copy())
+        
+        # Add keyframe to MapBuilder for navigation directions
+        position = np.array([self.pose[0], self.pose[1]])
+        orientation = np.array([np.cos(self.pose[2]), np.sin(self.pose[2])])
+        self.map_builder.add_keyframe(
+            frame_id=keyframe.id,
+            position=position,
+            orientation=orientation,
+            features=features_3d,
+            descriptors=desc_orb
+        )
+
+        print(f"✅ KF#{keyframe.id} created | Reason: {self.last_keyframe_trigger_reason}")
+
+        return keyframe
+    
+    def _initialize_first_frame(self, gray, depth_map, kp_orb, desc_orb, features_3d, keypoints_2d):
+        if not self.first_frame_initialized:
+            print("\n🔷 INITIALIZING FIRST FRAME AS REFERENCE")
+            self._create_keyframe(gray, depth_map, kp_orb, desc_orb, features_3d, keypoints_2d)
+            self.first_frame_initialized = True
+            print("✅ First keyframe created\n")
+    
+    def depth_map(self, frame_bgr):
+        rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+        inp = transform(rgb).to(device)
+        with torch.no_grad():
+            pred = midas(inp)
+            pred = torch.nn.functional.interpolate(
+                pred.unsqueeze(1),
+                size=rgb.shape[:2],
+                mode="bicubic",
+                align_corners=False
+            ).squeeze()
+        return pred.cpu().numpy()
+    
+    def update(self, gray, frame_bgr):
+        img_height, img_width = gray.shape
+        self.frame_count += 1
+        
+        # DEPTH COMPUTATION
+        if self.depth_frame_counter % self.depth_compute_every_n_frames == 0:
+            depth_map = self.depth_map(frame_bgr)
+            self.prev_depth = depth_map
+        else:
+            depth_map = self.prev_depth
+        
+        self.depth_frame_counter += 1
+        
+        # Lookahead point
+        u_look = int(self.cx)
+        v_look = int(img_height * self.lookahead_height_ratio)
+        self.lookahead_pixel = (u_look, v_look)
+        
+        if depth_map is not None:
+            midas_depth = depth_map[v_look, u_look]
+            self.lookahead_depth_curr = self._midas_to_metric_depth(midas_depth)
+        else:
+            self.lookahead_depth_curr = None
+        
+        # MOTION DETECTION
+        if self.prev_gray is not None:
+            has_forward, has_rotation = self._detect_motion_state(gray)
+            
+            if has_rotation:
+                self.motion_mode = "ROTATING"
+                self.rest_frames_count = 0
+            elif has_forward:
+                self.motion_mode = "FORWARD"
+                self.rest_frames_count = 0
+            else:
+                self.rest_frames_count += 1
+                if self.rest_frames_count >= self.rest_frames_threshold:
+                    self.motion_mode = "REST"
+            
+            # POSE UPDATE
+            if self.motion_mode == "ROTATING":
+                prev_pt = np.array([[[u_look, v_look]]], dtype=np.float32)
+                next_pt, status, _ = cv2.calcOpticalFlowPyrLK(
+                    self.prev_gray, gray, prev_pt, None,
+                    winSize=(21, 21), maxLevel=3,
+                    criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.01)
+                )
+                
+                if status is not None and status[0][0] == 1:
+                    u_next, _ = next_pt[0][0]
+                    delta_u = u_next - u_look
+                    yaw_raw = delta_u / max(1e-6, self.fx)
+                    yaw_delta = yaw_raw * self.ROTATION_SENSITIVITY
+                    
+                    self.pose[2] += yaw_delta
+                    self.rotation_magnitude = abs(math.degrees(yaw_delta))
+                    self.translation_magnitude = 0.0
+            
+            elif self.motion_mode == "FORWARD":
+                trans_step = self.FIXED_FORWARD_DISTANCE
+                yaw = self.pose[2]
+                
+                self.pose[0] += trans_step * math.cos(yaw)
+                self.pose[1] += trans_step * math.sin(yaw)
+                
+                old_dist = self.path_distance
+                self.path_distance += trans_step
+                
+                if int(self.path_distance) > int(old_dist):
+                    self.meter_markers.append({
+                        'x': self.pose[0],
+                        'y': self.pose[1],
+                        'distance': int(self.path_distance)
+                    })
+                
+                self.translation_magnitude = trans_step
+                self.rotation_magnitude = 0.0
+            
+            else:
+                self.translation_magnitude = 0.0
+                self.rotation_magnitude = 0.0
+
+        # FEATURE TRACKING
+        if self.prev_gray is not None:
+            self.track_old_features(gray)
+        
+        # PARALLEL PROCESSING
+        kp_orb, desc_orb = self.feature_extraction(gray, depth_map)
+        new_features, features_3d, keypoints_2d = self.map_building(
+            kp_orb, desc_orb, gray, depth_map, self.pose
+        )
+        _, coverage = self.track_old_features(gray) if self.prev_gray is not None else (0, 0.0)
+        
+        self.localization_loop(gray, kp_orb, desc_orb)
+        depth_pattern = self._extract_depth_pattern(depth_map, kp_orb)
+        self.loop_closure_and_bundle_adjustment(depth_pattern)
+        
+        # KEYFRAME MANAGEMENT
+        if not self.first_frame_initialized:
+            self._initialize_first_frame(gray, depth_map, kp_orb, desc_orb, features_3d, keypoints_2d)
+        elif self._should_create_keyframe(coverage):
+            self._create_keyframe(gray, depth_map, kp_orb, desc_orb, features_3d, keypoints_2d)
+        
+        self.prev_gray = gray
+    
+    def draw_camera_view(self, frame_bgr, depth_map):
+        if depth_map is not None:
+            depth_norm = cv2.normalize(depth_map, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+            depth_colored = cv2.applyColorMap(depth_norm, cv2.COLORMAP_MAGMA)
+            vis = cv2.addWeighted(frame_bgr, 0.4, depth_colored, 0.6, 0)
+        else:
+            vis = frame_bgr.copy()
+        
+        for pt in self.visible_map_points:
+            u, v = int(pt['u']), int(pt['v'])
+            age = self.frame_count - pt['frame']
+            alpha = 1.0 - (age / self.feature_lifetime_frames)
+            brightness = int(255 * alpha)
+            cv2.circle(vis, (u, v), 3, (brightness, brightness, 255), -1)
+        
+        if self.lookahead_pixel is not None:
+            u_look, v_look = self.lookahead_pixel
+            cv2.circle(vis, (u_look, v_look), 10, (0, 255, 255), -1)
+            
+            if self.lookahead_depth_curr is not None:
+                cv2.putText(vis, f"{self.lookahead_depth_curr:.2f}m",
+                           (u_look + 20, v_look - 10),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+        
+        y = 25
+        cv2.putText(vis, f"Detected: {self.feature_counts['total']}", 
+                   (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        y += 25
+        cv2.putText(vis, f"Tracked: {self.successfully_tracked_count}", 
+                   (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        y += 25
+        
+        dist_since_kf = math.sqrt(
+            (self.pose[0] - self.pose_at_last_keyframe[0])**2 + 
+            (self.pose[1] - self.pose_at_last_keyframe[1])**2
+        )
+        rot_since_kf = abs(self.pose[2] - self.pose_at_last_keyframe[2])
+        if rot_since_kf > math.pi:
+            rot_since_kf = 2*math.pi - rot_since_kf
+        
+        cv2.putText(vis, f"Dist: {dist_since_kf:.3f}m | Rot: {math.degrees(rot_since_kf):.1f}°", 
+                   (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (100, 200, 255), 2)
+        y += 25
+        
+        cv2.putText(vis, f"Map: {self.feature_counts['stored']}/{self.max_map_features}",
+                   (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        
+        y += 25
+        cv2.putText(vis, f"Keyframes: {len(self.keyframes_info) + (1 if self.current_keyframe else 0)}",
+                   (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        
+        y += 25
+        if self.matched_keyframe_id is not None:
+            cv2.putText(vis, f"🎯 Matched KF#{self.matched_keyframe_id}",
+                       (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+        
+        y += 30
+        state_colors = {"ROTATING": (0, 165, 255), "FORWARD": (0, 255, 0), "REST": (128, 128, 128)}
+        state_color = state_colors.get(self.motion_mode, (255, 255, 255))
+        
+        if self.motion_mode == "ROTATING":
+            state_text = f"ROTATING ({self.rotation_magnitude:.2f}deg)"
+        elif self.motion_mode == "FORWARD":
+            state_text = f"FORWARD ({self.translation_magnitude:.4f}m)"
+        else:
+            state_text = "REST"
+        
+        cv2.putText(vis, state_text, (10, y),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, state_color, 2)
+        
+        y += 30
+        if self.keyframe_cooldown_reason:
+            cv2.putText(vis, f"⏱️ {self.keyframe_cooldown_reason}", 
+                       (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 100, 0), 1)
+        elif self.last_keyframe_trigger_reason:
+            text = self.last_keyframe_trigger_reason[:80]
+            cv2.putText(vis, f"✅ KF Trigger: {text}", 
+                       (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+        
+        return vis
+    
+    def draw_top_view(self, scale=100, size=900, fps=None):
+        canvas = np.zeros((size, size, 3), dtype=np.uint8)
+        
+        center_x, center_y = size // 2, size // 2
+        cam_x, cam_y, cam_yaw = self.pose
+        cam_screen_x = center_x
+        cam_screen_y = center_y
+        
+        def project(x, y):
+            dx = x - cam_x
+            dy = y - cam_y
+            sx = int(cam_screen_x + dx * scale)
+            sy = int(cam_screen_y - dy * scale)
+            return sx, sy
+        
+        feature_age_limit = 200
+        for feat in self.spatial_grid.values():
+            if self.frame_count - feat['frame'] < feature_age_limit:
+                sx, sy = project(feat['x'], feat['y'])
+                if 0 <= sx < size and 0 <= sy < size:
+                    brightness = int(np.clip(200.0 / (feat['z'] + 0.5), 40, 255))
+                    cv2.circle(canvas, (sx, sy), 2, (brightness, brightness, brightness), -1)
+
+        if len(self.keyframe_trajectory) > 1:
+            kf_points = []
+            for (x, y, _) in self.keyframe_trajectory:
+                px, py = project(x, y)
+                if 0 <= px < size and 0 <= py < size:
+                    kf_points.append((px, py))
+
+            if len(kf_points) > 1:
+                for i in range(len(kf_points) - 1):
+                    cv2.line(canvas, kf_points[i], kf_points[i+1], (0, 165, 255), 3, cv2.LINE_AA)
+        
+        for marker in self.meter_markers:
+            mx, my = project(marker['x'], marker['y'])
+            if 0 <= mx < size and 0 <= my < size:
+                cv2.circle(canvas, (mx, my), 6, (0, 255, 0), -1)
+                cv2.putText(canvas, f"{marker['distance']}m", (mx + 12, my + 5),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+        
+        KEYFRAME_COLOR = (255, 0, 0)
+        LINE_LENGTH = 30
+        
+        for kf_id_str, kf_info in self.keyframes_info.items():
+            kf_id = int(kf_id_str)
+            kf_pose = np.array(kf_info['pose'])
+            kf_x, kf_y, kf_yaw = kf_pose
+            kf_sx, kf_sy = project(kf_x, kf_y)
+            
+            if 0 <= kf_sx < size and 0 <= kf_sy < size:
+                cv2.circle(canvas, (kf_sx, kf_sy), 7, KEYFRAME_COLOR, -1)
+                cv2.circle(canvas, (kf_sx, kf_sy), 12, KEYFRAME_COLOR, 2)
+                
+                perp_angle = kf_yaw + math.pi / 2
+                line_ex = int(kf_sx + LINE_LENGTH * math.cos(perp_angle))
+                line_ey = int(kf_sy - LINE_LENGTH * math.sin(perp_angle))
+                
+                cv2.line(canvas, (kf_sx, kf_sy), (line_ex, line_ey),
+                        KEYFRAME_COLOR, 3, cv2.LINE_AA)
+                
+                cv2.putText(canvas, f"KF{kf_id}", (kf_sx + 20, kf_sy - 20),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, KEYFRAME_COLOR, 1)
+        
+        if self.current_keyframe is not None:
+            cur_x, cur_y, cur_yaw = self.current_keyframe.pose
+            cur_sx, cur_sy = project(cur_x, cur_y)
+            
+            if 0 <= cur_sx < size and 0 <= cur_sy < size:
+                cv2.circle(canvas, (cur_sx, cur_sy), 7, (255, 255, 0), -1)
+                cv2.circle(canvas, (cur_sx, cur_sy), 12, (255, 255, 0), 2)
+                
+                perp_angle = cur_yaw + math.pi / 2
+                line_ex = int(cur_sx + LINE_LENGTH * math.cos(perp_angle))
+                line_ey = int(cur_sy - LINE_LENGTH * math.sin(perp_angle))
+                
+                cv2.line(canvas, (cur_sx, cur_sy), (line_ex, line_ey),
+                        (255, 255, 0), 3, cv2.LINE_AA)
+                
+                cv2.putText(canvas, f"KF{self.current_keyframe.id}*", 
+                           (cur_sx + 20, cur_sy - 20),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
+        
+        arrow_len = 40
+        arrow_ex = int(cam_screen_x + arrow_len * math.cos(cam_yaw))
+        arrow_ey = int(cam_screen_y - arrow_len * math.sin(cam_yaw))
+        
+        cv2.circle(canvas, (cam_screen_x, cam_screen_y), 8, (0, 255, 0), -1)
+        
+        arrow_colors = {"ROTATING": (0, 165, 255), "FORWARD": (0, 255, 0), "REST": (128, 128, 128)}
+        arrow_color = arrow_colors.get(self.motion_mode, (255, 255, 255))
+        
+        cv2.arrowedLine(canvas, (cam_screen_x, cam_screen_y), (arrow_ex, arrow_ey),
+                       arrow_color, 3, tipLength=0.3)
+        
+        perp_angle = cam_yaw + math.pi / 2
+        line_ex_curr = int(cam_screen_x + LINE_LENGTH * math.cos(perp_angle))
+        line_ey_curr = int(cam_screen_y - LINE_LENGTH * math.sin(perp_angle))
+        cv2.line(canvas, (cam_screen_x, cam_screen_y), (line_ex_curr, line_ey_curr),
+                (0, 255, 0), 2, cv2.LINE_AA)
+        
+        y = 30
+        if fps is not None:
+            cv2.putText(canvas, f"FPS: {fps:.1f}", (10, y),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 2)
+            y += 30
+        
+        cv2.putText(canvas, f"Distance: {self.path_distance:.2f}m", (10, y),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+        
+        y += 30
+        cv2.putText(canvas, f"Points: {len(self.spatial_grid)}", (10, y),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 2)
+        
+        y += 30
+        total_kfs = len(self.keyframes_info) + (1 if self.current_keyframe else 0)
+        cv2.putText(canvas, f"Keyframes: {total_kfs}", (10, y),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 2)
+        
+        y += 30
+        distance_since_kf = self.path_distance - self.distance_at_last_keyframe
+        cv2.putText(canvas, f"Cooldown: {distance_since_kf:.3f}m/{self.keyframe_distance_cooldown:.2f}m", 
+                   (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 100, 0), 2)
+        
+        y = size - 220
+        cv2.putText(canvas, "LEGEND:", (10, y),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+        
+        y += 25
+        cv2.circle(canvas, (30, y-5), 3, (0, 165, 255), -1)
+        cv2.putText(canvas, "ORANGE = Path", (50, y),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 165, 255), 1)
+        
+        y += 25
+        cv2.circle(canvas, (30, y-5), 5, (255, 0, 0), -1)
+        cv2.putText(canvas, "BLUE = Stored Keyframes", (50, y),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
+        
+        y += 25
+        cv2.circle(canvas, (30, y-5), 5, (255, 255, 0), -1)
+        cv2.putText(canvas, "CYAN = Current KF (memory)*", (50, y),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
+        
+        y += 25
+        cv2.circle(canvas, (30, y-5), 4, (0, 255, 0), -1)
+        cv2.putText(canvas, "GREEN = Current Camera", (50, y),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+        
+        return canvas
+    
+    def run_slam(self, source=0, target_w=640, target_h=480,
+                 use_rover_stream=False, rover_url=None):
+        if use_rover_stream and rover_url:
+            cap = RoverStreamCapture(rover_url)
+        else:
+            cap = cv2.VideoCapture(source)
+        
+        if not cap.isOpened():
+            print("❌ Cannot open video source")
+            return
+        
+        print("\n" + "="*110)
+        print("🎯 DISTANCE-BASED KEYFRAME SLAM")
+        print("="*110)
+        print(f"✅ Keyframe triggers (ANY met + distance cooldown):")
+        print(f"   1. Tracked features < {self.tracked_feature_threshold}")
+        print(f"   2. Distance traveled > {self.distance_threshold:.3f}m")
+        print(f"   3. Rotation > {math.degrees(self.rotation_threshold):.1f}°")
+        print(f"   4. Feature coverage < {self.feature_coverage_threshold*100:.0f}%")
+        print(f"   + Minimum {self.keyframe_distance_cooldown:.2f}m between keyframes")
+        print(f"✅ Forward step: {self.FIXED_FORWARD_DISTANCE:.4f}m per frame")
+        print(f"✅ Storage: Only current KF in RAM, rest on disk")
+        print(f"✅ Depth: Every 2nd frame")
+        print("\n⌨️ [ESC] Quit | [S] Save map | [P] Print stats | [+/-] Adjust cooldown")
+        print("="*110 + "\n")
+        
+        fps = 0.0
+        prev_time = time.time()
+        
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            
+            frame = cv2.resize(frame, (target_w, target_h))
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            
+            self.update(gray, frame)
+            
+            now = time.time()
+            dt = now - prev_time
+            prev_time = now
+            
+            if dt > 0:
+                fps = 0.85 * fps + 0.15 * (1.0 / dt) if fps > 0 else 1.0 / dt
+            
+            vis = self.draw_camera_view(frame, self.prev_depth)
+            cv2.imshow("Camera View - Distance-Based Keyframes", vis)
+            
+            top_map = self.draw_top_view(scale=100, size=900, fps=fps)
+            cv2.imshow("Top View - Distance-Based Keyframe Selection", top_map)
+            
+            key = cv2.waitKey(1) & 0xFF
+            if key == 27:
+                break
+            elif key == ord('s') or key == ord('S'):
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                map_img = self.draw_top_view(scale=100, size=900, fps=None)
+                map_filename = f"slam_distance_{timestamp}.png"
+                cv2.imwrite(map_filename, map_img)
+                print(f"✅ Saved: {map_filename}")
+            elif key == ord('p') or key == ord('P'):
+                print(f"\n📊 STATISTICS:")
+                print(f"   Frame: {self.frame_count}")
+                print(f"   Distance: {self.path_distance:.3f}m")
+                print(f"   Keyframes (stored): {len(self.keyframes_info)}")
+                print(f"   Cooldown setting: {self.keyframe_distance_cooldown:.2f}m\n")
+            elif key == ord('+') or key == ord('='):
+                self.keyframe_distance_cooldown += 0.05
+                print(f"⬆️ Cooldown increased to {self.keyframe_distance_cooldown:.2f}m (fewer keyframes)")
+            elif key == ord('-') or key == ord('_'):
+                self.keyframe_distance_cooldown = max(0.05, self.keyframe_distance_cooldown - 0.05)
+                print(f"⬇️ Cooldown decreased to {self.keyframe_distance_cooldown:.2f}m (more keyframes)")
+        
+        cap.release()
+        cv2.destroyAllWindows()
+        
+        print("\n💾 Finalizing...")
+        if self.current_keyframe is not None:
+            self.storage_manager.save_keyframe(self.current_keyframe)
+            self.keyframes_info[str(self.current_keyframe.id)] = {
+                'pose': self.current_keyframe.pose.tolist(),
+                'num_features': len(self.current_keyframe.features_3d),
+                'timestamp': self.current_keyframe.timestamp
+            }
+        
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        final_map = self.draw_top_view(scale=100, size=900, fps=None)
+        cv2.imwrite(f"slam_final_{timestamp}.png", final_map)
+        
+        print(f"✅ Total keyframes: {len(self.keyframes_info)}")
+        print(f"✅ Total map points: {len(self.spatial_grid)}")
+        print(f"✅ Total distance: {self.path_distance:.2f}m")
+        
+        # Save navigation direction map
+        self._save_direction_map()
+        
+    def _save_direction_map(self):
+        """Save the navigation direction map to a JSON file"""
+        try:
+            direction_map_file = os.path.join(self.storage_manager.storage_dir, "direction_map.json")
+            direction_data = {
+                'keyframe_directions': self.map_builder.keyframe_directions,
+                'total_keyframes': len(self.map_builder.keyframes),
+                'timestamp': time.strftime("%Y-%m-%d %H:%M:%S")
+            }
+            
+            with open(direction_map_file, 'w') as f:
+                json.dump(direction_data, f, indent=2)
+            
+            print(f"✅ Direction map saved: {direction_map_file}")
+            
+            # Print direction map for debugging
+            self.map_builder.print_direction_map()
+            
+        except Exception as e:
+            print(f"⚠️ Could not save direction map: {e}")
+
+# =============== MAIN ===============
+def main_menu():
+    print("\n" + "="*110)
+    print("🗺️ DISTANCE-BASED KEYFRAME SLAM SYSTEM")
+    print("="*110)
+    print("1. Build Map (Distance-Based Keyframe Selection)")
+    print("2. Exit")
+    print("="*110)
+    
+    choice = input("Choose [1/2]: ").strip()
+    
+    if choice == '1':
+        build_map_menu()
+
+def build_map_menu():
+    print("\n📹 BUILD MAP")
+    print("0 - Rover Stream")
+    print("1 - Webcam")
+    print("2 - Video File")
+    
+    choice = input("Choose: ").strip()
+    
+    rot_sens = input("Rotation sensitivity [3.0]: ").strip()
+    rotation_sensitivity = float(rot_sens) if rot_sens else 3.0
+    
+    cooldown = input("Keyframe distance cooldown [0.2m]: ").strip()
+    keyframe_distance_cooldown = float(cooldown) if cooldown else 0.2
+    
+    slam = TunedFeatureTrackingSLAM(
+        fx=600.0, fy=600.0, cx=320.0, cy=240.0,
+        min_features_per_frame=30,
+        max_features_per_frame=150,
+        rotation_sensitivity=rotation_sensitivity,
+        feature_lifetime_frames=50,
+        max_depth_threshold=3.0,
+        spatial_grid_size=0.10,
+        tracked_feature_threshold=20,
+        distance_threshold=0.3,
+        rotation_threshold=30.0,
+        feature_coverage_threshold=0.6,
+        keyframe_distance_cooldown=keyframe_distance_cooldown,
+        local_map_size=10
+    )
+    
+    if choice == '0':
+        rover_url = input("Rover URL [http://10.47.11.127:8080/video_feed]: ").strip()
+        rover_url = rover_url if rover_url else "http://10.47.11.127:8080/video_feed"
+        slam.run_slam(source=None, use_rover_stream=True, rover_url=rover_url)
+    elif choice == '1':
+        slam.run_slam(source=0)
+    elif choice == '2':
+        path = input("Video path: ").strip()
+        if os.path.exists(path):
+            slam.run_slam(source=path)
+        else:
+            print("❌ File not found")
+
+if __name__ == "__main__":
+    main_menu()
