@@ -1,0 +1,156 @@
+{
+  "keyframe_directions": {
+    "0": {
+      "direction": "forward",
+      "angle": 0,
+      "raw_angle": 0.14637875672147516,
+      "distance": 0.19999992564106736
+    },
+    "1": {
+      "direction": "forward",
+      "angle": 0,
+      "raw_angle": 0.3167343843582273,
+      "distance": 0.19999946159399934
+    },
+    "2": {
+      "direction": "forward",
+      "angle": 0,
+      "raw_angle": 0.00031368599988468304,
+      "distance": 0.19999990240406584
+    },
+    "3": {
+      "direction": "forward",
+      "angle": 0,
+      "raw_angle": -0.13854464995480953,
+      "distance": 0.1999998607170547
+    },
+    "4": {
+      "direction": "forward",
+      "angle": 0,
+      "raw_angle": -0.2530159102251446,
+      "distance": 0.19999972123378082
+    },
+    "5": {
+      "direction": "forward_left",
+      "angle": 90,
+      "raw_angle": 87.87497988318074,
+      "distance": 0.16602223477314224
+    },
+    "6": {
+      "direction": "forward",
+      "angle": 0,
+      "raw_angle": -0.48175198784284134,
+      "distance": 0.19999951695838528
+    },
+    "7": {
+      "direction": "forward",
+      "angle": 0,
+      "raw_angle": 1.7971768014137695,
+      "distance": 0.1999998328475541
+    },
+    "8": {
+      "direction": "forward",
+      "angle": 0,
+      "raw_angle": 0.3466042623485066,
+      "distance": 0.19999982020368298
+    },
+    "9": {
+      "direction": "forward",
+      "angle": 0,
+      "raw_angle": 0.162398191331647,
+      "distance": 0.20799985623078085
+    },
+    "10": {
+      "direction": "forward",
+      "angle": 0,
+      "raw_angle": 0.10077900042864485,
+      "distance": 0.19999995319991373
+    },
+    "11": {
+      "direction": "forward",
+      "angle": 0,
+      "raw_angle": -0.0625843785949769,
+      "distance": 0.19999998412767625
+    },
+    "12": {
+      "direction": "forward",
+      "angle": 0,
+      "raw_angle": 0.0,
+      "distance": 0.19999999999999932
+    },
+    "13": {
+      "direction": "forward",
+      "angle": 0,
+      "raw_angle": -0.04333156521661863,
+      "distance": 0.19999999084868508
+    },
+    "14": {
+      "direction": "forward",
+      "angle": 0,
+      "raw_angle": 0.0,
+      "distance": 0.19999999999999848
+    },
+    "15": {
+      "direction": "forward",
+      "angle": 0,
+      "raw_angle": 0.0,
+      "distance": 0.19999999999999848
+    },
+    "16": {
+      "direction": "forward",
+      "angle": 0,
+      "raw_angle": 0.4110224975582355,
+      "distance": 0.199999013327385
+    },
+    "17": {
+      "direction": "forward",
+      "angle": 0,
+      "raw_angle": -0.5286091692121602,
+      "distance": 0.19999325467615123
+    },
+    "18": {
+      "direction": "forward",
+      "angle": 0,
+      "raw_angle": -0.13820951533955395,
+      "distance": 0.19999993936112465
+    },
+    "19": {
+      "direction": "forward",
+      "angle": 0,
+      "raw_angle": 0.34619941973323876,
+      "distance": 0.20799972358114774
+    },
+    "20": {
+      "direction": "forward",
+      "angle": 0,
+      "raw_angle": 0.38663542187390476,
+      "distance": 0.19999953930501935
+    },
+    "21": {
+      "direction": "forward",
+      "angle": 0,
+      "raw_angle": 1.7886590200319574,
+      "distance": 0.19999786445458534
+    },
+    "22": {
+      "direction": "forward",
+      "angle": 0,
+      "raw_angle": 0.24497804161239856,
+      "distance": 0.19999976378621
+    },
+    "23": {
+      "direction": "forward",
+      "angle": 0,
+      "raw_angle": 0.05888181136538151,
+      "distance": 0.19999993650126632
+    },
+    "24": {
+      "direction": "forward",
+      "angle": 0,
+      "raw_angle": 1.952151090747833,
+      "distance": 0.19999065359103255
+    }
+  },
+  "total_keyframes": 26,
+  "timestamp": "2025-11-13 11:31:29"
+}

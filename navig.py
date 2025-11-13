@@ -22,18 +22,13 @@ except Exception:
 
 def load_midas_model():
     """Load MiDaS depth estimation model"""
-    print("� Initializing MiDaS...")
+    print("🔄 Loading MiDaS depth model...")
+    print("🔧 Initializing MiDaS...")
     midas = torch.hub.load("intel-isl/MiDaS", "MiDaS_small")
     midas_transforms = torch.hub.load("intel-isl/MiDaS", "transforms")
     transform = midas_transforms.small_transform
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     midas.to(device).eval()
-    
-    if torch.cuda.is_available():
-        print(f"✅ CUDA - GPU: {torch.cuda.get_device_name(0)}")
-    else:
-        print("⚠️ CPU MODE")
-    
     return midas, transform, device
 
 
@@ -52,6 +47,8 @@ class RoverController:
         self.command_cooldown = 0.3  # Minimum time between commands (reduced for responsiveness)
         self.emergency_stop = False  # Emergency stop flag
         self.last_command_sent = None  # Track what command was last sent
+        self.is_rotating = False  # Flag to indicate rotation in progress
+        self.rotation_start_time = 0  # When rotation started
         
     def send_command(self, command):
         """
@@ -87,7 +84,7 @@ class RoverController:
     def execute_navigation_command(self, nav_direction):
         """
         Execute navigation command based on direction
-        Only sends command if enough time has passed since last command
+        Handles rotation with proper stop -> rotate -> delay -> resume sequence
         """
         current_time = time.time()
         command = nav_direction.get('command', 'unknown')
@@ -97,23 +94,15 @@ class RoverController:
             print("🚨 EMERGENCY STOP ACTIVE - No commands executed")
             return False
         
-        # Don't send duplicate commands too quickly
-        if self.last_command_time > 0:
-            time_since_last = current_time - self.last_command_time
-            
-            # If last command was forward (2 sec), don't send another forward too soon
-            if self.last_command_sent == 'forward' and command == 'forward':
-                if time_since_last < 2.0:
-                    return False
-            
-            # If last command was rotation (4 sec), wait for completion
-            elif self.last_command_sent in ['left', 'right']:
-                if time_since_last < 4.0:
-                    return False
-            
-            # General cooldown
-            if time_since_last < self.command_cooldown:
-                return False
+        # Check if we're currently in a rotation sequence
+        if self.is_rotating:
+            # Wait for rotation to complete (2 seconds after rotation command)
+            if current_time - self.rotation_start_time < 2.0:
+                return False  # Still in rotation cooldown
+            else:
+                # Rotation complete, reset flag
+                self.is_rotating = False
+                print("✅ Rotation sequence complete - resuming navigation")
         
         # Execute the command
         if command == 'forward':
@@ -125,11 +114,37 @@ class RoverController:
             return success
             
         elif command in ['left', 'right']:
-            print(f"🔄 Rotating {command} → 90° (~4 sec)")
+            # ROTATION SEQUENCE: Stop -> Rotate -> 2sec Delay
+            print(f"\n{'='*60}")
+            print(f"🔄 ROTATION SEQUENCE INITIATED: {command.upper()}")
+            print(f"{'='*60}")
+            
+            # Step 1: Send STOP command first
+            print(f"🛑 Step 1: Stopping rover before rotation...")
+            self.send_command('stop')
+            time.sleep(0.5)  # Brief pause to ensure stop is executed
+            
+            # Step 2: Execute rotation
+            print(f"� Step 2: Rotating {command} → 90°")
             success = self.send_command(command)
+            
             if success:
                 self.last_command_sent = command
                 self.last_command_time = current_time
+                self.is_rotating = True
+                self.rotation_start_time = current_time
+                
+                # Step 3: 2-second delay (pause navigation)
+                print(f"⏳ Step 3: 2-second delay (navigation paused)...")
+                time.sleep(2.0)  # ACTUAL 2-second delay
+                
+                print(f"{'='*60}")
+                print(f"✅ Rotation complete - navigation will resume")
+                print(f"{'='*60}\n")
+                
+                # Reset rotation flag after delay
+                self.is_rotating = False
+            
             return success
             
         elif command == 'stop':
@@ -528,20 +543,35 @@ class LiveNavigationSystem:
                 # Check if this is towards destination
                 next_kf = stored_direction.get('target_frame', current_kf_id + 1)
                 
-                # If we're past destination, stop
+                # If we're at or past destination, stop
                 if self.destination_kf_id is not None:
                     if current_kf_id >= self.destination_kf_id:
                         return {'direction': 'stop', 'angle': 0, 'distance': 0, 
                                 'target_frame': self.destination_kf_id,
                                 'status': 'destination_reached', 'command': 'stop'}
+                    
+                    # Don't go past destination
+                    if next_kf > self.destination_kf_id:
+                        return {'direction': 'stop', 'angle': 0, 'distance': 0, 
+                                'target_frame': self.destination_kf_id,
+                                'status': 'destination_reached', 'command': 'stop'}
+                
+                # Convert stored direction to proper command
+                direction = stored_direction['direction']
+                if direction in ['rotate_left', 'forward_left']:
+                    command = 'left'
+                elif direction in ['rotate_right', 'forward_right']:
+                    command = 'right'
+                else:
+                    command = direction  # 'forward' or 'stop'
                 
                 return {
-                    'direction': stored_direction['direction'],
+                    'direction': direction,
                     'angle': stored_direction['angle'],
                     'distance': stored_direction['distance'],
                     'target_frame': next_kf,
                     'status': 'at_keyframe',
-                    'command': stored_direction['direction']
+                    'command': command
                 }
             
             # Fallback: calculate dynamically towards destination
@@ -681,7 +711,12 @@ class LiveNavigationSystem:
             main_text = "DESTINATION REACHED - STOP"
         elif status == 'at_keyframe':
             color = (0, 255, 255)  # Yellow
-            main_text = f"At Keyframe - Next: {direction.upper()}"
+            if direction in ['rotate_left', 'forward_left']:
+                main_text = f"At Keyframe - ROTATE LEFT {angle}°"
+            elif direction in ['rotate_right', 'forward_right']:
+                main_text = f"At Keyframe - ROTATE RIGHT {angle}°"
+            else:
+                main_text = f"At Keyframe - Next: {direction.upper()}"
         else:
             color = (255, 255, 255)  # White
             if direction == 'forward':
@@ -776,9 +811,9 @@ class LiveNavigationSystem:
             if direction == 'forward':
                 command = "⬆️  MOVE FORWARD"
             elif direction == 'rotate_left' or direction == 'forward_left':
-                command = f"↶  ROTATE LEFT {angle}°"
+                command = f"↶  ROTATE LEFT {angle}° (STOP → ROTATE → 2sec DELAY)"
             elif direction == 'rotate_right' or direction == 'forward_right':
-                command = f"↷  ROTATE RIGHT {angle}°"
+                command = f"↷  ROTATE RIGHT {angle}° (STOP → ROTATE → 2sec DELAY)"
             elif direction == 'stop':
                 command = "⏹️  STOP"
             else:
@@ -788,9 +823,9 @@ class LiveNavigationSystem:
             if direction == 'forward':
                 command = "⬆️  MOVE FORWARD"
             elif direction == 'rotate_left' or direction == 'forward_left':
-                command = f"↶  ROTATE LEFT {angle}°"
+                command = f"↶  ROTATE LEFT {angle}° (STOP → ROTATE → 2sec DELAY)"
             elif direction == 'rotate_right' or direction == 'forward_right':
-                command = f"↷  ROTATE RIGHT {angle}°"
+                command = f"↷  ROTATE RIGHT {angle}° (STOP → ROTATE → 2sec DELAY)"
             elif direction == 'stop':
                 command = "⏹️  STOP"
             else:
@@ -925,10 +960,18 @@ class LiveNavigationSystem:
         print(f"{'='*80}\n")
         
         while True:
-            ret, frame = cap.read()
+            # REAL-TIME FRAME CAPTURE: Clear buffer and get latest frame
+            # This prevents frame stacking/queuing for true real-time navigation
+            for _ in range(2):  # Grab and discard buffered frames
+                cap.grab()
+            
+            ret, frame = cap.retrieve()
             if not ret:
-                print("\n⚠️ End of video stream or read error")
-                break
+                # Try regular read if retrieve fails
+                ret, frame = cap.read()
+                if not ret:
+                    print("\n⚠️ End of video stream or read error")
+                    break
             
             frame = cv2.resize(frame, (640, 480))
             frame_count += 1
@@ -966,6 +1009,21 @@ class LiveNavigationSystem:
                 map_canvas = self.draw_map_with_live_position(frame)
                 cv2.imshow("Navigation Map", map_canvas)
                 cv2.imshow("Current Frame", emergency_frame)
+                continue
+            
+            # Skip processing if rotation is in progress (navigation paused during rotation)
+            if self.rover_controller.is_rotating:
+                # Show rotation overlay
+                rotation_frame = frame.copy()
+                cv2.rectangle(rotation_frame, (0, 0), (640, 100), (0, 165, 255), -1)
+                cv2.putText(rotation_frame, "ROTATION IN PROGRESS", (120, 50),
+                           cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 3)
+                cv2.putText(rotation_frame, "Navigation Paused...", (180, 80),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                
+                map_canvas = self.draw_map_with_live_position(frame)
+                cv2.imshow("Navigation Map", map_canvas)
+                cv2.imshow("Current Frame", rotation_frame)
                 continue
             
             # Process EVERY frame in real-time (no skipping for low latency)

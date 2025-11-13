@@ -1090,7 +1090,7 @@ class TunedFeatureTrackingSLAM:
         center_x, center_y = size // 2, size // 2
         cam_x, cam_y, cam_yaw = self.pose
         cam_screen_x = center_x
-        cam_screen_y = int(size * 0.70)
+        cam_screen_y = center_y
         
         def project(x, y):
             dx = x - cam_x

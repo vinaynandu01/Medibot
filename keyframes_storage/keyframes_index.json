@@ -1,0 +1,264 @@
+{
+  "keyframes": {
+    "0": {
+      "filename": "keyframes_storage\\keyframe_000000.pkl",
+      "pose": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "timestamp": 1763013289.3174582,
+      "num_features": 49
+    },
+    "1": {
+      "filename": "keyframes_storage\\keyframe_000001.pkl",
+      "pose": [
+        0.19999987039357564,
+        0.0001486572750275393,
+        0.002554791259765627
+      ],
+      "timestamp": 1763013321.080675,
+      "num_features": 86
+    },
+    "2": {
+      "filename": "keyframes_storage\\keyframe_000002.pkl",
+      "pose": [
+        0.3999961657452487,
+        0.0012740387641104016,
+        0.008082849121093747
+      ],
+      "timestamp": 1763013350.2016087,
+      "num_features": 104
+    },
+    "3": {
+      "filename": "keyframes_storage\\keyframe_000003.pkl",
+      "pose": [
+        0.5999910943933329,
+        0.00268452686529592,
+        0.008088323974609376
+      ],
+      "timestamp": 1763013367.3906574,
+      "num_features": 122
+    },
+    "4": {
+      "filename": "keyframes_storage\\keyframe_000004.pkl",
+      "pose": [
+        0.7999869193807086,
+        0.003955067876138712,
+        0.005670263671874999
+      ],
+      "timestamp": 1763013378.04146,
+      "num_features": 129
+    },
+    "5": {
+      "filename": "keyframes_storage\\keyframe_000005.pkl",
+      "pose": [
+        0.9999853058226934,
+        0.004685762198393316,
+        0.001254302978515625
+      ],
+      "timestamp": 1763013385.3556654,
+      "num_features": 105
+    },
+    "6": {
+      "filename": "keyframes_storage\\keyframe_000006.pkl",
+      "pose": [
+        1.1614090690776284,
+        0.043489770956291605,
+        1.5349620320638018
+      ],
+      "timestamp": 1763013424.088516,
+      "num_features": 82
+    },
+    "7": {
+      "filename": "keyframes_storage\\keyframe_000007.pkl",
+      "pose": [
+        1.169317557310569,
+        0.2433328659019436,
+        1.5265538736979163
+      ],
+      "timestamp": 1763013432.361821,
+      "num_features": 68
+    },
+    "8": {
+      "filename": "keyframes_storage\\keyframe_000008.pkl",
+      "pose": [
+        1.1723606134102178,
+        0.44330954691406554,
+        1.5579205261230467
+      ],
+      "timestamp": 1763013439.297319,
+      "num_features": 56
+    },
+    "9": {
+      "filename": "keyframes_storage\\keyframe_000009.pkl",
+      "pose": [
+        1.1739093317355107,
+        0.6433033707013376,
+        1.5639699117024743
+      ],
+      "timestamp": 1763013447.2515368,
+      "num_features": 55
+    },
+    "10": {
+      "filename": "keyframes_storage\\keyframe_000010.pkl",
+      "pose": [
+        1.1753966517593473,
+        0.8512979092622628,
+        1.5668042948404952
+      ],
+      "timestamp": 1763013455.0179484,
+      "num_features": 57
+    },
+    "11": {
+      "filename": "keyframes_storage\\keyframe_000011.pkl",
+      "pose": [
+        1.1760481391112227,
+        1.0512968013696893,
+        1.568563220214844
+      ],
+      "timestamp": 1763013459.4737034,
+      "num_features": 42
+    },
+    "12": {
+      "filename": "keyframes_storage\\keyframe_000012.pkl",
+      "pose": [
+        1.1766772162775054,
+        1.2512957961496372,
+        1.5674709167480472
+      ],
+      "timestamp": 1763013463.797494,
+      "num_features": 38
+    },
+    "13": {
+      "filename": "keyframes_storage\\keyframe_000013.pkl",
+      "pose": [
+        1.1773422970610905,
+        1.4512946903154575,
+        1.5674709167480472
+      ],
+      "timestamp": 1763013467.1860561,
+      "num_features": 27
+    },
+    "14": {
+      "filename": "keyframes_storage\\keyframe_000014.pkl",
+      "pose": [
+        1.1780376287758112,
+        1.651293472444951,
+        1.5667146382649744
+      ],
+      "timestamp": 1763013471.2348661,
+      "num_features": 24
+    },
+    "15": {
+      "filename": "keyframes_storage\\keyframe_000015.pkl",
+      "pose": [
+        1.1788539642150744,
+        1.851291806429137,
+        1.5667146382649744
+      ],
+      "timestamp": 1763013475.044092,
+      "num_features": 11
+    },
+    "16": {
+      "filename": "keyframes_storage\\keyframe_000016.pkl",
+      "pose": [
+        1.1796702996543376,
+        2.051290140413323,
+        1.5667146382649744
+      ],
+      "timestamp": 1763013483.5582492,
+      "num_features": 14
+    },
+    "17": {
+      "filename": "keyframes_storage\\keyframe_000017.pkl",
+      "pose": [
+        1.179814395010551,
+        2.251289101831766,
+        1.5738883341471357
+      ],
+      "timestamp": 1763013500.2025654,
+      "num_features": 31
+    },
+    "18": {
+      "filename": "keyframes_storage\\keyframe_000018.pkl",
+      "pose": [
+        1.17738946932583,
+        2.451267654810288,
+        1.5646623636881518
+      ],
+      "timestamp": 1763013517.7674727,
+      "num_features": 50
+    },
+    "19": {
+      "filename": "keyframes_storage\\keyframe_000019.pkl",
+      "pose": [
+        1.1789564541695077,
+        2.6512614554715914,
+        1.562250152587891
+      ],
+      "timestamp": 1763013526.371382,
+      "num_features": 59
+    },
+    "20": {
+      "filename": "keyframes_storage\\keyframe_000020.pkl",
+      "pose": [
+        1.1800183554680097,
+        2.859258468371936,
+        1.5682924723307297
+      ],
+      "timestamp": 1763013542.8434277,
+      "num_features": 83
+    },
+    "21": {
+      "filename": "keyframes_storage\\keyframe_000021.pkl",
+      "pose": [
+        1.1798978236005666,
+        3.0592579713570407,
+        1.5750405334472664
+      ],
+      "timestamp": 1763013562.1069775,
+      "num_features": 139
+    },
+    "22": {
+      "filename": "keyframes_storage\\keyframe_000022.pkl",
+      "pose": [
+        1.174276021730425,
+        3.259176807713517,
+        1.6062585225423194
+      ],
+      "timestamp": 1763013575.3205159,
+      "num_features": 150
+    },
+    "23": {
+      "filename": "keyframes_storage\\keyframe_000023.pkl",
+      "pose": [
+        1.1666925229738485,
+        3.4590327459819328,
+        1.6105341959635435
+      ],
+      "timestamp": 1763013583.8423002,
+      "num_features": 150
+    },
+    "24": {
+      "filename": "keyframes_storage\\keyframe_000024.pkl",
+      "pose": [
+        1.1586746714802834,
+        3.658871902950575,
+        1.6115618774414078
+      ],
+      "timestamp": 1763013591.5609374,
+      "num_features": 150
+    },
+    "25": {
+      "filename": "keyframes_storage\\keyframe_000025.pkl",
+      "pose": [
+        1.148854159175309,
+        3.85862129359254,
+        1.645633341471356
+      ],
+      "timestamp": 1763013610.3298688,
+      "num_features": 88
+    }
+  }
+}
