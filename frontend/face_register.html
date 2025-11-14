@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Patient Face Registration - Medibot</title>
+    <link rel="stylesheet" href="css/styles.css" />
+    <link rel="stylesheet" href="css/dashboard.css" />
+    <style>
+      .register-container {
+        max-width: 800px;
+        margin: 2rem auto;
+        padding: 2rem;
+      }
+
+      .video-preview {
+        position: relative;
+        width: 100%;
+        max-width: 640px;
+        margin: 0 auto;
+        background: var(--gray-900);
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+      }
+
+      #webcam {
+        width: 100%;
+        height: auto;
+        display: block;
+      }
+
+      .capture-overlay {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 300px;
+        height: 300px;
+        border: 3px dashed var(--primary-color);
+        border-radius: 50%;
+        pointer-events: none;
+      }
+
+      .captures-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+        gap: var(--spacing-md);
+        margin-top: var(--spacing-lg);
+      }
+
+      .capture-item {
+        position: relative;
+        aspect-ratio: 1;
+        border-radius: var(--radius-md);
+        overflow: hidden;
+        border: 2px solid var(--gray-300);
+      }
+
+      .capture-item img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      .capture-item.empty {
+        background: var(--gray-100);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 2rem;
+        color: var(--gray-400);
+      }
+
+      .capture-number {
+        position: absolute;
+        top: 5px;
+        left: 5px;
+        background: var(--primary-color);
+        color: white;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.75rem;
+        font-weight: 600;
+      }
+
+      .instructions {
+        background: var(--primary-light);
+        padding: var(--spacing-md);
+        border-radius: var(--radius-md);
+        margin-bottom: var(--spacing-lg);
+      }
+
+      .instructions h3 {
+        margin-top: 0;
+        color: var(--primary-dark);
+      }
+
+      .instructions ul {
+        margin: 0;
+        padding-left: 1.5rem;
+      }
+
+      .instructions li {
+        margin-bottom: var(--spacing-xs);
+      }
+
+      .countdown {
+        position: absolute;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 4rem;
+        color: var(--primary-color);
+        font-weight: 700;
+        text-shadow: 0 0 20px rgba(255, 255, 255, 0.8);
+        z-index: 10;
+      }
+
+      .patient-info {
+        background: var(--gray-50);
+        padding: var(--spacing-md);
+        border-radius: var(--radius-md);
+        margin-bottom: var(--spacing-lg);
+      }
+
+      .status-message {
+        padding: var(--spacing-md);
+        border-radius: var(--radius-md);
+        margin-top: var(--spacing-md);
+        text-align: center;
+        font-weight: 500;
+      }
+
+      .status-message.success {
+        background: var(--success-color);
+        color: white;
+      }
+
+      .status-message.error {
+        background: var(--danger-color);
+        color: white;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Header -->
+    <header class="header" style="padding: 1rem 0">
+      <div class="header-content">
+        <div class="logo">
+          <h1 style="font-size: 1.5rem; margin: 0">
+            🤖 MEDIBOT - Face Registration
+          </h1>
+        </div>
+        <button class="btn btn-secondary" onclick="goToDashboard()">
+          ← Back
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="register-container">
+      <div class="card">
+        <div class="card-header">
+          <h2>Register Patient Face</h2>
+        </div>
+        <div class="card-body">
+          <!-- Patient Info -->
+          <div class="patient-info">
+            <h3 id="patientName">Loading patient...</h3>
+            <p id="patientDetails"></p>
+          </div>
+
+          <!-- Instructions -->
+          <div class="instructions">
+            <h3>📋 Instructions</h3>
+            <ul>
+              <li>
+                <strong>Position yourself:</strong> Center your face in the
+                circle
+              </li>
+              <li>
+                <strong>Good lighting:</strong> Make sure your face is well-lit
+              </li>
+              <li>
+                <strong>5 photos required:</strong> The camera will
+                automatically capture 5 photos
+              </li>
+              <li>
+                <strong>Vary angles slightly:</strong> Turn your head slightly
+                between captures
+              </li>
+              <li><strong>Stay still</strong> during each capture</li>
+            </ul>
+          </div>
+
+          <!-- Video Preview -->
+          <div class="video-preview">
+            <video id="webcam" autoplay playsinline></video>
+            <div class="capture-overlay"></div>
+            <div class="countdown" id="countdown" style="display: none"></div>
+          </div>
+
+          <!-- Captured Images -->
+          <div class="captures-grid">
+            <div class="capture-item empty" id="capture0">
+              <span class="capture-number">1</span>
+              📷
+            </div>
+            <div class="capture-item empty" id="capture1">
+              <span class="capture-number">2</span>
+              📷
+            </div>
+            <div class="capture-item empty" id="capture2">
+              <span class="capture-number">3</span>
+              📷
+            </div>
+            <div class="capture-item empty" id="capture3">
+              <span class="capture-number">4</span>
+              📷
+            </div>
+            <div class="capture-item empty" id="capture4">
+              <span class="capture-number">5</span>
+              📷
+            </div>
+          </div>
+
+          <!-- Controls -->
+          <div class="button-group" style="margin-top: 2rem">
+            <button
+              class="btn btn-primary"
+              id="startBtn"
+              onclick="startCapture()"
+            >
+              Start Capture
+            </button>
+            <button
+              class="btn btn-secondary"
+              id="resetBtn"
+              onclick="resetCaptures()"
+              style="display: none"
+            >
+              Reset
+            </button>
+            <button
+              class="btn btn-success"
+              id="submitBtn"
+              onclick="submitRegistration()"
+              style="display: none"
+            >
+              Submit Registration
+            </button>
+          </div>
+
+          <!-- Status Message -->
+          <div id="statusMessage"></div>
+        </div>
+      </div>
+    </main>
+
+    <script>
+      const API_URL = "http://localhost:5000/api";
+      let webcamStream = null;
+      let capturedImages = [];
+      let patientId = null;
+      let patientData = null;
+
+      // Get patient ID from URL
+      const urlParams = new URLSearchParams(window.location.search);
+      patientId = urlParams.get("patient_id");
+
+      if (!patientId) {
+        alert("No patient ID provided");
+        window.location.href = "/dashboard";
+      }
+
+      // Initialize
+      async function init() {
+        // Check authentication
+        const token = localStorage.getItem("session_token");
+        if (!token) {
+          window.location.href = "/login.html";
+          return;
+        }
+
+        // Load patient data
+        await loadPatientData();
+
+        // Start webcam
+        await startWebcam();
+      }
+
+      async function loadPatientData() {
+        const token = localStorage.getItem("session_token");
+
+        try {
+          const response = await fetch(`${API_URL}/patients/${patientId}`, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          });
+
+          const data = await response.json();
+
+          if (data.success) {
+            patientData = data.patient;
+            document.getElementById("patientName").textContent =
+              patientData.name;
+            document.getElementById(
+              "patientDetails"
+            ).textContent = `Room: ${patientData.room} | Age: ${patientData.age} | Condition: ${patientData.condition}`;
+          } else {
+            showStatus("Failed to load patient data", "error");
+          }
+        } catch (error) {
+          console.error("Error loading patient:", error);
+          showStatus("Error loading patient data", "error");
+        }
+      }
+
+      async function startWebcam() {
+        try {
+          webcamStream = await navigator.mediaDevices.getUserMedia({
+            video: { width: 640, height: 480 },
+            audio: false,
+          });
+
+          document.getElementById("webcam").srcObject = webcamStream;
+        } catch (error) {
+          console.error("Error accessing webcam:", error);
+          showStatus(
+            "Could not access webcam. Please allow camera access.",
+            "error"
+          );
+        }
+      }
+
+      async function startCapture() {
+        document.getElementById("startBtn").disabled = true;
+        capturedImages = [];
+
+        // Capture 5 images with 3 second intervals
+        for (let i = 0; i < 5; i++) {
+          await countdown(3);
+          await captureImage(i);
+          await sleep(1000); // Wait 1 second between captures
+        }
+
+        document.getElementById("startBtn").disabled = false;
+        document.getElementById("resetBtn").style.display = "inline-block";
+        document.getElementById("submitBtn").style.display = "inline-block";
+
+        showStatus("All images captured! Review and submit.", "success");
+      }
+
+      async function countdown(seconds) {
+        const countdownEl = document.getElementById("countdown");
+        countdownEl.style.display = "block";
+
+        for (let i = seconds; i > 0; i--) {
+          countdownEl.textContent = i;
+          await sleep(1000);
+        }
+
+        countdownEl.style.display = "none";
+      }
+
+      async function captureImage(index) {
+        const video = document.getElementById("webcam");
+        const canvas = document.createElement("canvas");
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(video, 0, 0);
+
+        const imageData = canvas.toDataURL("image/jpeg");
+        capturedImages.push(imageData);
+
+        // Display captured image
+        const captureItem = document.getElementById(`capture${index}`);
+        captureItem.classList.remove("empty");
+        captureItem.innerHTML = `
+          <span class="capture-number">${index + 1}</span>
+          <img src="${imageData}" alt="Capture ${index + 1}" />
+        `;
+      }
+
+      function resetCaptures() {
+        capturedImages = [];
+
+        for (let i = 0; i < 5; i++) {
+          const captureItem = document.getElementById(`capture${i}`);
+          captureItem.classList.add("empty");
+          captureItem.innerHTML = `
+            <span class="capture-number">${i + 1}</span>
+            📷
+          `;
+        }
+
+        document.getElementById("resetBtn").style.display = "none";
+        document.getElementById("submitBtn").style.display = "none";
+        document.getElementById("statusMessage").innerHTML = "";
+      }
+
+      async function submitRegistration() {
+        if (capturedImages.length < 5) {
+          showStatus("Please capture all 5 images first", "error");
+          return;
+        }
+
+        document.getElementById("submitBtn").disabled = true;
+        showStatus("Registering face... Please wait", "");
+
+        const token = localStorage.getItem("session_token");
+
+        const payload = {
+          patient_id: patientId,
+        };
+
+        // Add all images to payload
+        capturedImages.forEach((img, index) => {
+          payload[`image${index}`] = img;
+        });
+
+        try {
+          const response = await fetch(`${API_URL}/face/register`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify(payload),
+          });
+
+          const data = await response.json();
+
+          if (data.success) {
+            showStatus(
+              `✅ ${data.message} - Redirecting to dashboard...`,
+              "success"
+            );
+
+            setTimeout(() => {
+              window.location.href = "/dashboard";
+            }, 2000);
+          } else {
+            showStatus(`❌ ${data.message}`, "error");
+            document.getElementById("submitBtn").disabled = false;
+          }
+        } catch (error) {
+          console.error("Error registering face:", error);
+          showStatus("Error submitting registration", "error");
+          document.getElementById("submitBtn").disabled = false;
+        }
+      }
+
+      function showStatus(message, type) {
+        const statusEl = document.getElementById("statusMessage");
+        statusEl.className = `status-message ${type}`;
+        statusEl.textContent = message;
+      }
+
+      function sleep(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+      }
+
+      function goToDashboard() {
+        if (webcamStream) {
+          webcamStream.getTracks().forEach((track) => track.stop());
+        }
+        window.location.href = "/dashboard";
+      }
+
+      // Cleanup on page unload
+      window.addEventListener("beforeunload", () => {
+        if (webcamStream) {
+          webcamStream.getTracks().forEach((track) => track.stop());
+        }
+      });
+
+      // Initialize on load
+      init();
+    </script>
+  </body>
+</html>

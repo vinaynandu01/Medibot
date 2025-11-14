@@ -17,54 +17,33 @@ except Exception:
     DEPTH_SCALE = 5.0
 
 # ═══════════════════════════════════════════════════════════════════════════
-# MIDAS DEPTH MODEL LOADER
-# ═══════════════════════════════════════════════════════════════════════════
-
-def load_midas_model():
-    """Load MiDaS depth estimation model"""
-    print("🔄 Loading MiDaS depth model...")
-    print("🔧 Initializing MiDaS...")
-    midas = torch.hub.load("intel-isl/MiDaS", "MiDaS_small")
-    midas_transforms = torch.hub.load("intel-isl/MiDaS", "transforms")
-    transform = midas_transforms.small_transform
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    midas.to(device).eval()
-    return midas, transform, device
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# ROVER CONTROL (Updated with cmds.py integration)
+# ROVER CONTROL
 # ═══════════════════════════════════════════════════════════════════════════
 
 class RoverController:
-    """Controls the actual rover hardware via HTTP commands (integrated with cmds.py)"""
+    """Controls the actual rover hardware via HTTP commands"""
     
     def __init__(self, rover_ip="10.226.57.127", rover_port=8080, enable_control=True):
         self.rover_ip = rover_ip
         self.rover_port = rover_port
-        self.enable_control = enable_control  # Safety flag to disable actual commands
-        self.last_command_time = 0  # When was last command sent (initialize to 0)
-        self.command_cooldown = 0.3  # Minimum time between commands (reduced for responsiveness)
-        self.emergency_stop = False  # Emergency stop flag
-        self.last_command_sent = None  # Track what command was last sent
-        self.is_rotating = False  # Flag to indicate rotation in progress
-        self.rotation_start_time = 0  # When rotation started
+        self.enable_control = enable_control
+        self.last_command_time = 0
+        self.command_cooldown = 0.3
+        self.emergency_stop = False
+        self.last_command_sent = None
+        self.is_moving_forward = False
+        
+        # SIMPLIFIED ROTATION STATE MACHINE
+        self.rotation_state = None  # None, 'pre_stop', 'rotating', 'post_stop', 'cooldown'
+        self.rotation_state_start = 0
+        self.rotation_direction = None  # 'left' or 'right'
         
     def send_command(self, command):
-        """
-        Send command to rover (matches cmds.py behavior)
-        command: 'forward', 'backward', 'left', 'right', or 'stop'
-        
-        Note: 
-        - 'forward' moves 0.3m over 2 seconds
-        - 'left'/'right' rotates 90 degrees
-        - Each command is self-contained
-        """
+        """Send command to rover"""
         if not self.enable_control:
             print(f"🔒 [SIMULATION] Command: {command}")
             return True
         
-        # Check emergency stop
         if self.emergency_stop and command != 'stop':
             print(f"🚨 Emergency stop active - ignoring command: {command}")
             return False
@@ -81,78 +60,119 @@ class RoverController:
             print(f"❌ Rover control error: {e}")
             return False
     
-    def execute_navigation_command(self, nav_direction):
+    def update_rotation_state_machine(self):
         """
-        Execute navigation command based on direction
-        Handles rotation with proper stop -> rotate -> delay -> resume sequence
+        Handle rotation sequence state machine.
+        Returns: True if rotation is in progress (block navigation), False otherwise
         """
+        if self.rotation_state is None:
+            return False  # Not rotating
+        
+        current_time = time.time()
+        elapsed = current_time - self.rotation_state_start
+        
+        if self.rotation_state == 'pre_stop':
+            # State 1: Stop before rotation (1 second)
+            if elapsed >= 1.0:
+                print(f"🔄 Sending {self.rotation_direction.upper()} rotation command (ONCE)...")
+                self.send_command(self.rotation_direction)
+                self.rotation_state = 'rotating'
+                self.rotation_state_start = current_time
+                return True
+            else:
+                remaining = 1.0 - elapsed
+                if remaining > 0.8:  # Only print at start
+                    print(f"🛑 Pre-rotation stop: {remaining:.1f}s remaining...")
+                return True
+        
+        elif self.rotation_state == 'rotating':
+            # State 2: Rotating (5 seconds)
+            if elapsed >= 5.0:
+                print(f"🛑 Stopping rotation...")
+                self.send_command('stop')
+                self.rotation_state = 'post_stop'
+                self.rotation_state_start = current_time
+                return True
+            else:
+                return True  # Still rotating
+        
+        elif self.rotation_state == 'post_stop':
+            # State 3: Post-rotation stabilization (1 second)
+            if elapsed >= 1.0:
+                print(f"✅ Rotation complete - preparing fresh navigation...")
+                self.rotation_state = 'cooldown'
+                self.rotation_state_start = current_time
+                return True
+            else:
+                return True  # Still stabilizing
+        
+        elif self.rotation_state == 'cooldown':
+            # State 4: Frame clearing cooldown (0.5 seconds)
+            if elapsed >= 0.5:
+                print(f"🆕 Fresh navigation ready - resuming...")
+                self.rotation_state = None
+                self.rotation_direction = None
+                return False  # Resume navigation
+            else:
+                return True  # Still in cooldown
+        
+        return False
+    
+    def start_rotation(self, direction):
+        """Initiate rotation sequence (call ONCE per rotation)"""
+        if self.rotation_state is not None:
+            return False  # Already rotating, ignore
+        
+        print(f"\n{'='*60}")
+        print(f"🔄 ROTATION SEQUENCE: {direction.upper()}")
+        print(f"{'='*60}")
+        
+        self.rotation_state = 'pre_stop'
+        self.rotation_state_start = time.time()
+        self.rotation_direction = direction
+        self.is_moving_forward = False
+        
+        # Send initial stop
+        print(f"🛑 Step 1: Stopping rover...")
+        self.send_command('stop')
+        return True
+    
+    def execute_navigation_command(self, nav_direction, current_kf_id=None):
+        """Execute navigation command with proper rotation handling"""
+        # Check if rotation is in progress
+        if self.update_rotation_state_machine():
+            return False  # Block navigation during rotation
+        
+        if self.emergency_stop:
+            return False
+        
         current_time = time.time()
         command = nav_direction.get('command', 'unknown')
         
-        # Check emergency stop
-        if self.emergency_stop:
-            print("🚨 EMERGENCY STOP ACTIVE - No commands executed")
-            return False
-        
-        # Check if we're currently in a rotation sequence
-        if self.is_rotating:
-            # Wait for rotation to complete (2 seconds after rotation command)
-            if current_time - self.rotation_start_time < 2.0:
-                return False  # Still in rotation cooldown
-            else:
-                # Rotation complete, reset flag
-                self.is_rotating = False
-                print("✅ Rotation sequence complete - resuming navigation")
-        
-        # Execute the command
         if command == 'forward':
-            print(f"🚀 Forward → Moving 0.3m (2 sec)")
-            success = self.send_command('forward')
-            if success:
-                self.last_command_sent = 'forward'
-                self.last_command_time = current_time
-            return success
+            if not self.is_moving_forward:
+                success = self.send_command('forward')
+                if success:
+                    self.last_command_sent = 'forward'
+                    self.last_command_time = current_time
+                    self.is_moving_forward = True
+                return success
+            else:
+                return True  # Already moving forward
             
         elif command in ['left', 'right']:
-            # ROTATION SEQUENCE: Stop -> Rotate -> 2sec Delay
-            print(f"\n{'='*60}")
-            print(f"🔄 ROTATION SEQUENCE INITIATED: {command.upper()}")
-            print(f"{'='*60}")
-            
-            # Step 1: Send STOP command first
-            print(f"🛑 Step 1: Stopping rover before rotation...")
-            self.send_command('stop')
-            time.sleep(0.5)  # Brief pause to ensure stop is executed
-            
-            # Step 2: Execute rotation
-            print(f"� Step 2: Rotating {command} → 90°")
-            success = self.send_command(command)
-            
-            if success:
-                self.last_command_sent = command
-                self.last_command_time = current_time
-                self.is_rotating = True
-                self.rotation_start_time = current_time
-                
-                # Step 3: 2-second delay (pause navigation)
-                print(f"⏳ Step 3: 2-second delay (navigation paused)...")
-                time.sleep(2.0)  # ACTUAL 2-second delay
-                
-                print(f"{'='*60}")
-                print(f"✅ Rotation complete - navigation will resume")
-                print(f"{'='*60}\n")
-                
-                # Reset rotation flag after delay
-                self.is_rotating = False
-            
-            return success
+            # Start rotation sequence (only if not already rotating)
+            if self.rotation_state is None:
+                return self.start_rotation(command)
+            else:
+                return False  # Already rotating
             
         elif command == 'stop':
-            print("🛑 Stop command")
             success = self.send_command('stop')
             if success:
                 self.last_command_sent = 'stop'
                 self.last_command_time = current_time
+                self.is_moving_forward = False
             return success
         
         return False
@@ -160,6 +180,8 @@ class RoverController:
     def emergency_stop_now(self):
         """Activate emergency stop immediately"""
         self.emergency_stop = True
+        self.is_moving_forward = False
+        self.rotation_state = None  # Cancel any rotation
         print("\n" + "="*80)
         print("🚨 EMERGENCY STOP ACTIVATED!")
         print("="*80)
@@ -245,7 +267,7 @@ class KeyframeStorageManager:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# LIVE NAVIGATION SYSTEM WITH LOCALIZATION
+# LIVE NAVIGATION SYSTEM
 # ═══════════════════════════════════════════════════════════════════════════
 
 class LiveNavigationSystem:
@@ -256,9 +278,6 @@ class LiveNavigationSystem:
         self.K = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]], dtype=float)
         self.storage_manager = KeyframeStorageManager()
         
-        # Load MiDaS depth model
-        self.midas, self.midas_transform, self.device = load_midas_model()
-        
         # ORB for feature extraction
         self.clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
         self.orb = cv2.ORB_create(nfeatures=500)
@@ -266,7 +285,7 @@ class LiveNavigationSystem:
         # Map data
         self.all_keyframes = {}
         self.spatial_grid = {}
-        self.keyframe_directions = {}  # Load from direction_map.json
+        self.keyframe_directions = {}
         
         # Current state
         self.current_pose = None
@@ -275,13 +294,9 @@ class LiveNavigationSystem:
         self.total_distance = 0.0
         
         # Navigation target
-        self.destination_kf_id = destination_kf_id  # Target destination keyframe
-        self.start_kf_id = None  # Will be set from first localization
+        self.destination_kf_id = destination_kf_id
+        self.start_kf_id = None
         self.destination_reached = False
-        
-        # Search behavior when lost (no localization match)
-        self.lost_frame_count = 0  # Counter for consecutive lost frames
-        self.search_forward_limit = 3  # Try moving forward 3 times before turning
         
         # Rover control integration
         self.rover_controller = RoverController(
@@ -289,7 +304,7 @@ class LiveNavigationSystem:
             rover_port=rover_port, 
             enable_control=enable_rover_control
         )
-        self.auto_control = enable_rover_control  # Flag to enable automatic control
+        self.auto_control = enable_rover_control
         
         # Rover stream settings
         self.use_rover_stream = use_rover_stream
@@ -299,22 +314,6 @@ class LiveNavigationSystem:
         self.map_canvas_size = 900
         self.map_scale = 100
 
-    def estimate_depth(self, frame):
-        """Estimate depth map using MiDaS"""
-        input_batch = self.midas_transform(frame).to(self.device)
-        
-        with torch.no_grad():
-            prediction = self.midas(input_batch)
-            prediction = torch.nn.functional.interpolate(
-                prediction.unsqueeze(1),
-                size=frame.shape[:2],
-                mode="bicubic",
-                align_corners=False,
-            ).squeeze()
-        
-        depth_map = prediction.cpu().numpy()
-        return depth_map
-
     def feature_extraction(self, gray):
         """Extract ORB features from grayscale image"""
         enhanced = self.clahe.apply(gray)
@@ -323,7 +322,6 @@ class LiveNavigationSystem:
         if kp is None or desc is None or len(kp) == 0:
             return [], None
         
-        # Keep best by response
         pairs = list(zip(kp, desc))
         pairs.sort(key=lambda x: -x[0].response)
         top = pairs[:min(len(pairs), 500)]
@@ -345,7 +343,6 @@ class LiveNavigationSystem:
             if kf:
                 self.all_keyframes[kf_id] = kf
                 
-                # Add features to spatial grid
                 for x_world, y_world, z_depth in kf.features_3d:
                     key = self._spatial_grid_key(x_world, y_world)
                     if key not in self.spatial_grid:
@@ -354,10 +351,7 @@ class LiveNavigationSystem:
                         }
         
         print(f"✅ Loaded {len(self.all_keyframes)} keyframes")
-        
-        # Load direction map
         self._load_direction_map(storage_dir)
-        
         return True
     
     def _load_direction_map(self, storage_dir):
@@ -367,11 +361,10 @@ class LiveNavigationSystem:
             if os.path.exists(direction_map_file):
                 with open(direction_map_file, 'r') as f:
                     data = json.load(f)
-                    # Convert string keys to integers
                     self.keyframe_directions = {int(k): v for k, v in data.get('keyframe_directions', {}).items()}
                 print(f"✅ Loaded direction map with {len(self.keyframe_directions)} entries")
             else:
-                print("⚠️ No direction map found - will calculate directions on-the-fly")
+                print("⚠️ No direction map found - will calculate on-the-fly")
         except Exception as e:
             print(f"⚠️ Could not load direction map: {e}")
 
@@ -379,40 +372,16 @@ class LiveNavigationSystem:
         return (int(x / 0.10), int(y / 0.10))
 
     def localize_frame(self, frame):
-        """
-        Localize current frame against all keyframes using MiDaS depth + matching.
-        Returns: (matched_kf_id, confidence, inliers, estimated_pose)
-        """
-        # Estimate depth for current frame using MiDaS
-        depth_map = self.estimate_depth(frame)
-        
-        # Extract features from current frame
+        """Localize current frame against all keyframes"""
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         kp_test, desc_test = self.feature_extraction(gray)
         
         if desc_test is None or len(kp_test) == 0:
             return None, 0.0, 0, None
 
-        # Generate 3D features from current frame using MiDaS depth
-        features_3d_current = []
-        for kp in kp_test:
-            u, v = int(kp.pt[0]), int(kp.pt[1])
-            if 0 <= v < depth_map.shape[0] and 0 <= u < depth_map.shape[1]:
-                depth_val = depth_map[v, u]
-                # Convert depth to metric using DEPTH_SCALE
-                z = depth_val / DEPTH_SCALE
-                if z > 0.1 and z < 10.0:  # Valid depth range
-                    x = (u - self.cx) * z / self.fx
-                    y = (v - self.cy) * z / self.fy
-                    features_3d_current.append([x, y, z])
-                else:
-                    features_3d_current.append([0, 0, 0])  # Invalid depth
-            else:
-                features_3d_current.append([0, 0, 0])
-
         best_match_kf_id = None
         best_confidence = 0.0
-        best_inliers = 0
+        best_num_matches = 0
         best_pose = None
 
         bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
@@ -428,7 +397,6 @@ class LiveNavigationSystem:
             except cv2.error:
                 continue
 
-            # Lowe's ratio test
             good_matches = []
             for m_n in matches:
                 if len(m_n) == 2:
@@ -436,54 +404,26 @@ class LiveNavigationSystem:
                     if m.distance < 0.75 * n.distance:
                         good_matches.append(m)
 
-            if len(good_matches) < 5:
+            if len(good_matches) < 10:
                 continue
 
             match_confidence = len(good_matches) / (len(kf.descriptors) + 1e-6)
 
-            # Build 3D–2D correspondences using keyframe's stored 3D features
-            object_points, image_points = [], []
-            for m in good_matches:
-                train_idx = m.trainIdx
-                query_idx = m.queryIdx
-                if train_idx < len(kf.features_3d):
-                    x, y, z = kf.features_3d[train_idx]
-                    object_points.append([x, y, z])
-                    if query_idx < len(kp_test):
-                        u, v = kp_test[query_idx].pt
-                        image_points.append([u, v])
-
-            if len(object_points) < 5:
-                continue
-
-            object_points = np.array(object_points, dtype=np.float32)
-            image_points = np.array(image_points, dtype=np.float32)
-
-            success, rvec, tvec, inliers = cv2.solvePnPRansac(
-                object_points, image_points, self.K, None,
-                iterationsCount=100,
-                reprojectionError=8.0,
-                confidence=0.99
-            )
-
-            inlier_count = len(inliers) if (success and inliers is not None) else 0
-
-            # Priority: confidence first, inliers as tie-breaker
             if match_confidence < 0.10:
                 continue
             
             if (match_confidence > best_confidence) or (
-                abs(match_confidence - best_confidence) < 1e-4 and inlier_count > best_inliers
+                abs(match_confidence - best_confidence) < 1e-4 and len(good_matches) > best_num_matches
             ):
                 best_confidence = match_confidence
-                best_inliers = inlier_count
+                best_num_matches = len(good_matches)
                 best_match_kf_id = kf_id
                 best_pose = kf.pose.copy()
 
-        return best_match_kf_id, best_confidence, best_inliers, best_pose
+        return best_match_kf_id, best_confidence, best_num_matches, best_pose
 
     def _snap_angle(self, angle):
-        """Snap angle to nearest standard value (45, 90, 180)"""
+        """Snap angle to nearest standard value"""
         if angle < 22.5:
             return 0
         elif angle < 67.5:
@@ -494,17 +434,16 @@ class LiveNavigationSystem:
             return 180
 
     def get_navigation_direction(self):
-        """Get direction to move from current position towards destination keyframe"""
+        """Get direction to move from current position towards destination"""
         if self.current_pose is None or len(self.all_keyframes) == 0:
             return {'direction': 'stop', 'angle': 0, 'distance': 0, 'target_frame': None, 
                     'status': 'no_pose', 'command': 'stop'}
         
-        # Check if destination reached
         if self.destination_kf_id is not None and self.current_kf_id == self.destination_kf_id:
             if not self.destination_reached:
                 self.destination_reached = True
                 print(f"\n{'='*80}")
-                print(f"🎯 DESTINATION REACHED! Arrived at Keyframe #{self.destination_kf_id}")
+                print(f"🎯 DESTINATION REACHED! Keyframe #{self.destination_kf_id}")
                 print(f"{'='*80}\n")
             return {'direction': 'stop', 'angle': 0, 'distance': 0, 
                     'target_frame': self.destination_kf_id, 
@@ -513,7 +452,7 @@ class LiveNavigationSystem:
         current_x, current_y, current_yaw = self.current_pose
         current_position = np.array([current_x, current_y])
         
-        # Find current keyframe (nearest)
+        # Find nearest keyframe
         min_dist = float('inf')
         current_kf_id = None
         
@@ -528,42 +467,42 @@ class LiveNavigationSystem:
             return {'direction': 'stop', 'angle': 0, 'distance': 0, 'target_frame': None, 
                     'status': 'no_keyframe', 'command': 'stop'}
         
-        # Set start keyframe on first localization
         if self.start_kf_id is None:
             self.start_kf_id = current_kf_id
-            print(f"\n📍 Start position: Keyframe #{self.start_kf_id}")
-            print(f"🎯 Destination: Keyframe #{self.destination_kf_id}\n")
+            print(f"\n📍 Start: KF#{self.start_kf_id} → Destination: KF#{self.destination_kf_id}\n")
         
-        # If very close to current keyframe, use pre-calculated direction if available
-        if min_dist < 0.5:  # Within 0.5m of keyframe
-            # Try to use pre-calculated direction from map building
+        # Use pre-calculated direction if close to keyframe
+        if min_dist < 0.5:
             if current_kf_id in self.keyframe_directions:
                 stored_direction = self.keyframe_directions[current_kf_id]
-                
-                # Check if this is towards destination
                 next_kf = stored_direction.get('target_frame', current_kf_id + 1)
                 
-                # If we're at or past destination, stop
                 if self.destination_kf_id is not None:
                     if current_kf_id >= self.destination_kf_id:
                         return {'direction': 'stop', 'angle': 0, 'distance': 0, 
                                 'target_frame': self.destination_kf_id,
                                 'status': 'destination_reached', 'command': 'stop'}
                     
-                    # Don't go past destination
                     if next_kf > self.destination_kf_id:
                         return {'direction': 'stop', 'angle': 0, 'distance': 0, 
                                 'target_frame': self.destination_kf_id,
                                 'status': 'destination_reached', 'command': 'stop'}
                 
-                # Convert stored direction to proper command
                 direction = stored_direction['direction']
-                if direction in ['rotate_left', 'forward_left']:
-                    command = 'left'
-                elif direction in ['rotate_right', 'forward_right']:
-                    command = 'right'
+                
+                if direction in ['rotate_left', 'forward_left', 'rotate_right', 'forward_right']:
+                    command = 'left' if direction in ['rotate_left', 'forward_left'] else 'right'
+                    return {
+                        'direction': direction,
+                        'angle': stored_direction['angle'],
+                        'distance': min_dist,
+                        'target_frame': next_kf,
+                        'status': 'at_keyframe',
+                        'command': command,
+                        'at_rotation_keyframe': min_dist < 0.25
+                    }
                 else:
-                    command = direction  # 'forward' or 'stop'
+                    command = direction
                 
                 return {
                     'direction': direction,
@@ -573,97 +512,20 @@ class LiveNavigationSystem:
                     'status': 'at_keyframe',
                     'command': command
                 }
-            
-            # Fallback: calculate dynamically towards destination
-            all_kf_ids = sorted(self.all_keyframes.keys())
-            try:
-                current_idx = all_kf_ids.index(current_kf_id)
-                
-                # Check if reached or passed destination
-                if self.destination_kf_id is not None:
-                    if current_kf_id >= self.destination_kf_id:
-                        return {'direction': 'stop', 'angle': 0, 'distance': 0,
-                                'target_frame': self.destination_kf_id,
-                                'status': 'destination_reached', 'command': 'stop'}
-                
-                # Move to next keyframe towards destination
-                if current_idx + 1 < len(all_kf_ids):
-                    next_kf_id = all_kf_ids[current_idx + 1]
-                    
-                    # Don't go past destination
-                    if self.destination_kf_id is not None and next_kf_id > self.destination_kf_id:
-                        return {'direction': 'stop', 'angle': 0, 'distance': 0,
-                                'target_frame': self.destination_kf_id,
-                                'status': 'destination_reached', 'command': 'stop'}
-                    
-                    next_kf = self.all_keyframes[next_kf_id]
-                    next_x, next_y, _ = next_kf.pose
-                    target_position = np.array([next_x, next_y])
-                    target_distance = np.linalg.norm(target_position - current_position)
-                    
-                    # Calculate direction to next keyframe
-                    rel_pos = target_position - current_position
-                    required_yaw = np.arctan2(rel_pos[1], rel_pos[0])
-                    angle_diff = np.degrees(required_yaw - current_yaw)
-                    angle_diff = (angle_diff + 180) % 360 - 180
-                    
-                    # Determine action
-                    if abs(angle_diff) > 15:  # Need to rotate first
-                        if angle_diff > 0:
-                            direction = 'rotate_left'
-                            command = 'left'
-                        else:
-                            direction = 'rotate_right'
-                            command = 'right'
-                        return {
-                            'direction': direction,
-                            'angle': self._snap_angle(abs(angle_diff)),
-                            'distance': target_distance,
-                            'target_frame': next_kf_id,
-                            'status': 'at_keyframe',
-                            'command': command
-                        }
-                    else:  # Aligned, move forward
-                        return {
-                            'direction': 'forward',
-                            'angle': 0,
-                            'distance': target_distance,
-                            'target_frame': next_kf_id,
-                            'status': 'at_keyframe',
-                            'command': 'forward'
-                        }
-                else:
-                    # Last keyframe reached
-                    return {
-                        'direction': 'stop',
-                        'angle': 0,
-                        'distance': 0,
-                        'target_frame': current_kf_id,
-                        'status': 'destination_reached',
-                        'command': 'stop'
-                    }
-            except ValueError:
-                pass
         
         # Navigate to nearest keyframe
         nearest_kf = self.all_keyframes[current_kf_id]
         nearest_x, nearest_y, _ = nearest_kf.pose
         target_position = np.array([nearest_x, nearest_y])
         
-        # Calculate direction
         rel_pos = target_position - current_position
         required_yaw = np.arctan2(rel_pos[1], rel_pos[0])
         angle_diff = np.degrees(required_yaw - current_yaw)
         angle_diff = (angle_diff + 180) % 360 - 180
         
-        # Determine action
-        if abs(angle_diff) > 15:  # Need to rotate first
-            if angle_diff > 0:
-                direction = 'rotate_left'
-                command = 'left'
-            else:
-                direction = 'rotate_right'
-                command = 'right'
+        if abs(angle_diff) > 15:
+            direction = 'rotate_left' if angle_diff > 0 else 'rotate_right'
+            command = 'left' if angle_diff > 0 else 'right'
             return {
                 'direction': direction,
                 'angle': self._snap_angle(abs(angle_diff)),
@@ -672,7 +534,7 @@ class LiveNavigationSystem:
                 'status': 'navigating',
                 'command': command
             }
-        else:  # Aligned, move forward
+        else:
             return {
                 'direction': 'forward',
                 'angle': 0,
@@ -688,81 +550,59 @@ class LiveNavigationSystem:
         h, w = display_frame.shape[:2]
         overlay = display_frame.copy()
         
-        # Draw direction info box
         box_height = 120
         cv2.rectangle(overlay, (10, 10), (400, box_height), (0, 0, 0), -1)
         cv2.addWeighted(overlay, 0.7, display_frame, 0.3, 0, display_frame)
         
-        # Direction text
         direction = nav_direction['direction']
         angle = nav_direction['angle']
         distance = nav_direction['distance']
         status = nav_direction.get('status', 'unknown')
         
-        # Color coding
-        if status == 'searching_forward':
-            color = (0, 165, 255)  # Orange - searching by moving forward
-            main_text = "SEARCHING - Moving Forward"
-        elif status == 'searching_rotate':
-            color = (0, 165, 255)  # Orange - searching by rotating
-            main_text = f"SEARCHING - Rotating Right {angle}°"
-        elif status == 'destination_reached':
-            color = (0, 255, 0)  # Green
-            main_text = "DESTINATION REACHED - STOP"
+        if status == 'destination_reached':
+            color = (0, 255, 0)
+            main_text = "DESTINATION REACHED"
         elif status == 'at_keyframe':
-            color = (0, 255, 255)  # Yellow
+            color = (0, 255, 255)
             if direction in ['rotate_left', 'forward_left']:
-                main_text = f"At Keyframe - ROTATE LEFT {angle}°"
+                main_text = f"ROTATE LEFT {angle}°"
             elif direction in ['rotate_right', 'forward_right']:
-                main_text = f"At Keyframe - ROTATE RIGHT {angle}°"
+                main_text = f"ROTATE RIGHT {angle}°"
             else:
-                main_text = f"At Keyframe - Next: {direction.upper()}"
+                main_text = f"Next: {direction.upper()}"
         else:
-            color = (255, 255, 255)  # White
+            color = (255, 255, 255)
             if direction == 'forward':
                 main_text = "MOVE FORWARD"
-            elif direction == 'rotate_left' or direction == 'forward_left':
+            elif direction in ['rotate_left', 'forward_left']:
                 main_text = f"ROTATE LEFT {angle}°"
-            elif direction == 'rotate_right' or direction == 'forward_right':
+            elif direction in ['rotate_right', 'forward_right']:
                 main_text = f"ROTATE RIGHT {angle}°"
             elif direction == 'stop':
                 main_text = "STOP"
-                color = (0, 0, 255)  # Red
+                color = (0, 0, 255)
             else:
                 main_text = "CALCULATING..."
         
-        # Draw text
         cv2.putText(display_frame, main_text, (20, 40),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 3)
         cv2.putText(display_frame, f"Distance: {distance:.2f}m", (20, 70),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
         if nav_direction['target_frame'] is not None:
-            cv2.putText(display_frame, f"Target: Frame {nav_direction['target_frame']}", (20, 95),
+            cv2.putText(display_frame, f"Target: KF{nav_direction['target_frame']}", (20, 95),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
         
-        # Draw direction arrow
+        # Direction arrow
         arrow_center_x = w - 100
         arrow_center_y = 80
         arrow_length = 50
         
         if direction == 'forward' or direction.startswith('forward'):
-            # Up arrow
             cv2.arrowedLine(display_frame, 
                           (arrow_center_x, arrow_center_y + arrow_length//2),
                           (arrow_center_x, arrow_center_y - arrow_length//2),
                           color, 3, tipLength=0.3)
-            if 'left' in direction:
-                cv2.arrowedLine(display_frame,
-                              (arrow_center_x - 20, arrow_center_y),
-                              (arrow_center_x - 40, arrow_center_y - 20),
-                              color, 2, tipLength=0.3)
-            elif 'right' in direction:
-                cv2.arrowedLine(display_frame,
-                              (arrow_center_x + 20, arrow_center_y),
-                              (arrow_center_x + 40, arrow_center_y - 20),
-                              color, 2, tipLength=0.3)
         elif direction == 'rotate_left':
-            # Left curved arrow
             cv2.ellipse(display_frame, (arrow_center_x, arrow_center_y),
                        (30, 30), 0, 180, 90, color, 3)
             cv2.arrowedLine(display_frame,
@@ -770,7 +610,6 @@ class LiveNavigationSystem:
                           (arrow_center_x - 35, arrow_center_y + 5),
                           color, 3, tipLength=0.5)
         elif direction == 'rotate_right':
-            # Right curved arrow
             cv2.ellipse(display_frame, (arrow_center_x, arrow_center_y),
                        (30, 30), 0, 0, -90, color, 3)
             cv2.arrowedLine(display_frame,
@@ -778,7 +617,6 @@ class LiveNavigationSystem:
                           (arrow_center_x + 35, arrow_center_y + 5),
                           color, 3, tipLength=0.5)
         elif direction == 'stop':
-            # Stop sign
             cv2.circle(display_frame, (arrow_center_x, arrow_center_y), 35, color, 3)
             cv2.putText(display_frame, "STOP", (arrow_center_x - 25, arrow_center_y + 10),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 3)
@@ -793,53 +631,41 @@ class LiveNavigationSystem:
         status = nav_direction.get('status', 'unknown')
         target_frame = nav_direction.get('target_frame', 'N/A')
         
-        # Build command text based on status and direction
-        if status == 'searching_forward':
-            command = "🔍 SEARCHING - Moving forward to find features"
-            symbol = "🔎"
-        elif status == 'searching_rotate':
-            command = f"🔍 SEARCHING - Rotating right {angle}° to scan area"
-            symbol = "🔄"
-        elif status == 'stopping_for_rotation':
-            command = "🛑 STOP - Preparing for rotation"
-            symbol = "⏸️"
-        elif status == 'destination_reached':
-            command = "🟢 DESTINATION REACHED - STOP"
+        if status == 'destination_reached':
+            command = "🟢 DESTINATION REACHED"
             symbol = "⏹️"
         elif status == 'at_keyframe':
             symbol = "📍"
             if direction == 'forward':
-                command = "⬆️  MOVE FORWARD"
-            elif direction == 'rotate_left' or direction == 'forward_left':
-                command = f"↶  ROTATE LEFT {angle}° (STOP → ROTATE → 2sec DELAY)"
-            elif direction == 'rotate_right' or direction == 'forward_right':
-                command = f"↷  ROTATE RIGHT {angle}° (STOP → ROTATE → 2sec DELAY)"
+                command = "⬆️  FORWARD"
+            elif direction in ['rotate_left', 'forward_left']:
+                command = f"↶  LEFT {angle}°"
+            elif direction in ['rotate_right', 'forward_right']:
+                command = f"↷  RIGHT {angle}°"
             elif direction == 'stop':
                 command = "⏹️  STOP"
             else:
-                command = "⏳ CALCULATING..."
-        else:  # navigating
+                command = "⏳ CALCULATING"
+        else:
             symbol = "🧭"
             if direction == 'forward':
-                command = "⬆️  MOVE FORWARD"
-            elif direction == 'rotate_left' or direction == 'forward_left':
-                command = f"↶  ROTATE LEFT {angle}° (STOP → ROTATE → 2sec DELAY)"
-            elif direction == 'rotate_right' or direction == 'forward_right':
-                command = f"↷  ROTATE RIGHT {angle}° (STOP → ROTATE → 2sec DELAY)"
+                command = "⬆️  FORWARD"
+            elif direction in ['rotate_left', 'forward_left']:
+                command = f"↶  LEFT {angle}°"
+            elif direction in ['rotate_right', 'forward_right']:
+                command = f"↷  RIGHT {angle}°"
             elif direction == 'stop':
                 command = "⏹️  STOP"
             else:
-                command = "⏳ CALCULATING..."
+                command = "⏳ CALCULATING"
         
-        # Print formatted command
-        print(f"   {symbol} {command} | Target: KF#{target_frame} | Distance: {distance:.2f}m")
+        print(f"   {symbol} {command} | Target: KF#{target_frame} | Dist: {distance:.2f}m")
 
     def draw_map_with_live_position(self, current_frame=None):
         """Draw top-down map with live rover position"""
         canvas = np.zeros((self.map_canvas_size, self.map_canvas_size, 3), dtype=np.uint8)
         center_x, center_y = self.map_canvas_size // 2, self.map_canvas_size // 2
         
-        # Calculate map bounds
         if self.trajectory:
             all_x = [p[0] for p in self.trajectory]
             all_y = [p[1] for p in self.trajectory]
@@ -853,7 +679,7 @@ class LiveNavigationSystem:
             sy = int(center_y - (y - map_center_y) * self.map_scale)
             return sx, sy
 
-        # Draw map features (spatial grid)
+        # Draw spatial grid
         for feat in self.spatial_grid.values():
             sx, sy = project(feat['x'], feat['y'])
             if 0 <= sx < self.map_canvas_size and 0 <= sy < self.map_canvas_size:
@@ -865,14 +691,12 @@ class LiveNavigationSystem:
             kf_x, kf_y, kf_yaw = kf.pose
             kf_sx, kf_sy = project(kf_x, kf_y)
             if 0 <= kf_sx < self.map_canvas_size and 0 <= kf_sy < self.map_canvas_size:
-                # Draw keyframe as line
                 perp_angle = kf_yaw + math.pi / 2
                 line_len = 30
                 line_ex = int(kf_sx + line_len * math.cos(perp_angle))
                 line_ey = int(kf_sy - line_len * math.sin(perp_angle))
                 cv2.line(canvas, (kf_sx, kf_sy), (line_ex, line_ey), (255, 0, 0), 3, cv2.LINE_AA)
                 
-                # Highlight if current match
                 if self.current_kf_id == kf_id:
                     cv2.circle(canvas, (kf_sx, kf_sy), 12, (0, 255, 255), 3)
                     cv2.putText(canvas, f"KF{kf_id}*", (kf_sx - 60, kf_sy - 40),
@@ -890,28 +714,25 @@ class LiveNavigationSystem:
                     0 <= p2[0] < self.map_canvas_size and 0 <= p2[1] < self.map_canvas_size):
                     cv2.line(canvas, p1, p2, (0, 255, 0), 2)
 
-        # Draw current rover position
+        # Draw rover
         if self.current_pose is not None:
             rover_x, rover_y, rover_yaw = self.current_pose
             rover_sx, rover_sy = project(rover_x, rover_y)
             
             if 0 <= rover_sx < self.map_canvas_size and 0 <= rover_sy < self.map_canvas_size:
-                # Draw rover circle
                 cv2.circle(canvas, (rover_sx, rover_sy), 15, (0, 0, 255), -1)
                 
-                # Draw heading arrow
                 arrow_len = 50
                 arrow_ex = int(rover_sx + arrow_len * math.cos(rover_yaw))
                 arrow_ey = int(rover_sy - arrow_len * math.sin(rover_yaw))
                 cv2.arrowedLine(canvas, (rover_sx, rover_sy), (arrow_ex, arrow_ey), 
                                (0, 0, 255), 3, tipLength=0.3)
                 
-                # Label
                 cv2.putText(canvas, "ROVER", (rover_sx - 50, rover_sy - 25),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
 
         # Info overlay
-        cv2.putText(canvas, "LIVE ROVER NAVIGATION", (10, 30),
+        cv2.putText(canvas, "LIVE NAVIGATION", (10, 30),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
         cv2.putText(canvas, f"Distance: {self.total_distance:.3f}m", (10, 60),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
@@ -921,89 +742,79 @@ class LiveNavigationSystem:
         return canvas
 
     def run_live_navigation(self, video_path_or_source, process_every_n=5):
-        """
-        Run live navigation with real-time localization and visualization
-        
-        Args:
-            video_path_or_source: Video file path, camera index (0, 1), or 'rover' for rover stream
-            process_every_n: Process every N frames for efficiency
-        """
+        """Run live navigation with real-time localization"""
         print(f"\n{'='*80}")
         print("🚀 STARTING LIVE NAVIGATION")
         print(f"{'='*80}\n")
         
-        # Handle different video sources
         if video_path_or_source == 'rover' or self.use_rover_stream:
             if self.rover_stream_url:
-                print(f"📹 Using rover stream: {self.rover_stream_url}")
+                print(f"📹 Rover stream: {self.rover_stream_url}")
                 cap = cv2.VideoCapture(self.rover_stream_url)
             else:
                 print("❌ Rover stream not configured")
                 return
         elif isinstance(video_path_or_source, int):
-            print(f"📹 Using camera index: {video_path_or_source}")
+            print(f"📹 Camera: {video_path_or_source}")
             cap = cv2.VideoCapture(video_path_or_source)
         else:
-            print(f"📹 Using video file: {video_path_or_source}")
+            print(f"📹 Video: {video_path_or_source}")
             cap = cv2.VideoCapture(video_path_or_source)
         
         if not cap.isOpened():
-            print(f"❌ Cannot open video source: {video_path_or_source}")
+            print(f"❌ Cannot open: {video_path_or_source}")
             return
         
         frame_count = 0
         emergency_stop_triggered = False
+        last_rotation_state = None
         
         print("\n⚠️  CONTROLS:")
-        print("   Press 'Q' to EMERGENCY STOP and exit")
-        print("   Press 'R' to resume after emergency stop")
+        print("   Q = Emergency stop | R = Resume | ESC = Exit")
         print(f"{'='*80}\n")
         
         while True:
-            # REAL-TIME FRAME CAPTURE: Clear buffer and get latest frame
-            # This prevents frame stacking/queuing for true real-time navigation
-            for _ in range(2):  # Grab and discard buffered frames
+            # Clear buffer for real-time frames
+            for _ in range(2):
                 cap.grab()
             
             ret, frame = cap.retrieve()
             if not ret:
-                # Try regular read if retrieve fails
                 ret, frame = cap.read()
                 if not ret:
-                    print("\n⚠️ End of video stream or read error")
+                    print("\n⚠️ Stream ended")
                     break
             
             frame = cv2.resize(frame, (640, 480))
             frame_count += 1
             
-            # Check for emergency stop key FIRST - highest priority
+            # Emergency stop handling
             key = cv2.waitKey(1) & 0xFF
             if key == ord('q') or key == ord('Q'):
                 if not emergency_stop_triggered:
                     emergency_stop_triggered = True
                     self.rover_controller.emergency_stop_now()
-                    print("\n🚨 EMERGENCY STOP - Press 'Q' again to exit or 'R' to resume")
+                    print("\n🚨 EMERGENCY STOP - Q=exit | R=resume")
                 else:
-                    print("\n⏹️ Exiting navigation...")
+                    print("\n⏹️ Exiting...")
                     break
             elif key == ord('r') or key == ord('R'):
                 if emergency_stop_triggered:
                     emergency_stop_triggered = False
                     self.rover_controller.reset_emergency_stop()
-                    print("\n✅ Resuming navigation...")
-            elif key == 27:  # ESC key
-                print("\n⏹️ Navigation stopped by user (ESC)")
+                    print("\n✅ Resuming...")
+            elif key == 27:
+                print("\n⏹️ Stopped (ESC)")
                 self.rover_controller.emergency_stop_now()
                 break
             
-            # Skip processing if emergency stop is active
+            # Emergency stop overlay
             if emergency_stop_triggered:
-                # Show emergency stop overlay
                 emergency_frame = frame.copy()
                 cv2.rectangle(emergency_frame, (0, 0), (640, 100), (0, 0, 255), -1)
-                cv2.putText(emergency_frame, "EMERGENCY STOP ACTIVE", (50, 50),
+                cv2.putText(emergency_frame, "EMERGENCY STOP", (100, 50),
                            cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 3)
-                cv2.putText(emergency_frame, "Press 'R' to resume | 'Q' to exit", (80, 80),
+                cv2.putText(emergency_frame, "R=resume | Q=exit", (150, 80),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
                 
                 map_canvas = self.draw_map_with_live_position(frame)
@@ -1011,14 +822,35 @@ class LiveNavigationSystem:
                 cv2.imshow("Current Frame", emergency_frame)
                 continue
             
-            # Skip processing if rotation is in progress (navigation paused during rotation)
-            if self.rover_controller.is_rotating:
-                # Show rotation overlay
+            # Check rotation state
+            current_rotation_state = self.rover_controller.rotation_state
+            rotation_in_progress = self.rover_controller.update_rotation_state_machine()
+            
+            # Clear frame buffer when rotation completes
+            if last_rotation_state == 'cooldown' and current_rotation_state is None:
+                print("🧹 Clearing frame buffer...")
+                for _ in range(10):
+                    cap.grab()
+                self.current_pose = None
+                print("✅ Fresh localization starting")
+            
+            last_rotation_state = current_rotation_state
+            
+            # Rotation overlay
+            if rotation_in_progress:
                 rotation_frame = frame.copy()
                 cv2.rectangle(rotation_frame, (0, 0), (640, 100), (0, 165, 255), -1)
-                cv2.putText(rotation_frame, "ROTATION IN PROGRESS", (120, 50),
+                
+                state_text = {
+                    'pre_stop': "STOPPING",
+                    'rotating': "ROTATING 90°",
+                    'post_stop': "STABILIZING",
+                    'cooldown': "CLEARING"
+                }.get(current_rotation_state, "ROTATION")
+                
+                cv2.putText(rotation_frame, state_text, (200, 50),
                            cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 3)
-                cv2.putText(rotation_frame, "Navigation Paused...", (180, 80),
+                cv2.putText(rotation_frame, "Navigation Paused", (180, 80),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
                 
                 map_canvas = self.draw_map_with_live_position(frame)
@@ -1026,87 +858,70 @@ class LiveNavigationSystem:
                 cv2.imshow("Current Frame", rotation_frame)
                 continue
             
-            # Process EVERY frame in real-time (no skipping for low latency)
-            # Localize current frame
+            # Localization
             start_time = time.time()
             matched_kf_id, confidence, inliers, estimated_pose = self.localize_frame(frame)
             elapsed = time.time() - start_time
             
-            # Update pose and trajectory if localized
+            # Update pose
             if matched_kf_id is not None and estimated_pose is not None:
-                # Reset lost frame counter when successfully localized
-                self.lost_frame_count = 0
-                
-                # Update current pose
+                matched_kf = self.all_keyframes[matched_kf_id]
                 old_pose = self.current_pose
-                self.current_pose = estimated_pose
+                
+                self.current_pose = matched_kf.pose.copy()
                 self.current_kf_id = matched_kf_id
                 
-                # Update trajectory and distance
                 if old_pose is not None:
                     dx = self.current_pose[0] - old_pose[0]
                     dy = self.current_pose[1] - old_pose[1]
                     distance = np.sqrt(dx**2 + dy**2)
-                    self.total_distance += distance
+                    
+                    if distance < 0.5:
+                        self.total_distance += distance
+                        self.trajectory.append((self.current_pose[0], self.current_pose[1]))
+                    else:
+                        print(f"  ⚠️ Jump: {distance:.2f}m")
+                else:
+                    self.trajectory.append((self.current_pose[0], self.current_pose[1]))
                 
-                self.trajectory.append((self.current_pose[0], self.current_pose[1]))
-                
-                print(f"[Frame {frame_count:5d}] ✅ KF#{matched_kf_id} | "
+                print(f"[{frame_count:5d}] ✅ KF#{matched_kf_id} | "
                       f"Conf: {confidence*100:.1f}% | Inliers: {inliers} | "
-                      f"Time: {elapsed*1000:.1f}ms | Dist: {self.total_distance:.3f}m")
+                      f"{elapsed*1000:.1f}ms")
             else:
-                # No match found - increment lost counter
-                self.lost_frame_count += 1
-                print(f"[Frame {frame_count:5d}] ❌ No match found (Lost frames: {self.lost_frame_count})")
+                print(f"[{frame_count:5d}] ❌ No match")
             
-            # Get navigation direction
+            # Fresh navigation calculation
             nav_direction = self.get_navigation_direction()
             
-            # If no localization, just keep going forward (unless navigation says turn right)
             if matched_kf_id is None:
-                # Check if the calculated navigation direction is to turn right
-                if nav_direction.get('command') == 'right':
-                    # Navigation wants right turn, so execute it
-                    nav_direction = {
-                        'direction': 'rotate_right', 
-                        'angle': 90,
-                        'distance': 0,
-                        'target_frame': None,
-                        'status': 'searching_rotate',
-                        'command': 'right'
-                    }
-                else:
-                    # Default: keep moving forward to search for features
-                    nav_direction = {
-                        'direction': 'forward',
-                        'angle': 0,
-                        'distance': 0.3,
-                        'target_frame': None,
-                        'status': 'searching_forward',
-                        'command': 'forward'
-                    }
+                nav_direction = {
+                    'direction': 'forward',
+                    'angle': 0,
+                    'distance': 0.3,
+                    'target_frame': None,
+                    'status': 'searching',
+                    'command': 'forward'
+                }
             
-            # Print navigation direction to terminal
             self.print_navigation_command(nav_direction)
             
-            # Execute rover command if auto-control is enabled (timing handled in RoverController)
+            # Execute command
             if self.auto_control:
-                self.rover_controller.execute_navigation_command(nav_direction)
+                self.rover_controller.execute_navigation_command(nav_direction, matched_kf_id)
             
-            # Check if destination reached - send stop and exit loop
+            # Check destination
             if nav_direction.get('status') == 'destination_reached':
                 if self.auto_control:
-                    print("\n🛑 Destination reached - Sending STOP command to rover...")
+                    print("\n🛑 Destination reached - STOP")
                     self.rover_controller.send_command('stop')
-                # Show final frame then exit
                 frame_with_nav = self.draw_navigation_overlay(frame, nav_direction)
                 map_canvas = self.draw_map_with_live_position(frame)
                 cv2.imshow("Navigation Map", map_canvas)
                 cv2.imshow("Current Frame", frame_with_nav)
-                cv2.waitKey(2000)  # Show final state for 2 seconds
-                break  # Exit navigation loop
+                cv2.waitKey(2000)
+                break
             
-            # Visualization with navigation overlay
+            # Visualization
             frame_with_nav = self.draw_navigation_overlay(frame, nav_direction)
             map_canvas = self.draw_map_with_live_position(frame)
             cv2.imshow("Navigation Map", map_canvas)
@@ -1116,18 +931,13 @@ class LiveNavigationSystem:
         cap.release()
         cv2.destroyAllWindows()
         
-        # Send final stop command
         if self.auto_control:
-            print("\n🛑 Sending final stop command to rover...")
+            print("\n🛑 Final stop...")
             self.rover_controller.send_command('stop')
         
         print(f"\n{'='*80}")
-        print("🎯 NAVIGATION COMPLETE")
-        print(f"{'='*80}")
-        print(f"Total Distance: {self.total_distance:.3f}m")
-        if self.current_pose is not None:
-            print(f"Final Position: ({self.current_pose[0]:.3f}, {self.current_pose[1]:.3f})")
-        print(f"Frames Processed: {frame_count}")
+        print("🎯 COMPLETE")
+        print(f"   Distance: {self.total_distance:.3f}m | Frames: {frame_count}")
         print(f"{'='*80}\n")
 
 
@@ -1137,54 +947,52 @@ class LiveNavigationSystem:
 
 def main():
     print("\n" + "="*80)
-    print("🚀 LIVE ROVER NAVIGATION WITH REAL-TIME LOCALIZATION")
+    print("🚀 LIVE ROVER NAVIGATION")
     print("="*80 + "\n")
     
-    # Ask for control mode
     print("🎮 Control Mode:")
-    print("  1. Simulation (display commands only)")
-    print("  2. Automatic Rover Control (send commands to rover)")
-    mode = input("Select mode (1/2, default 1): ").strip()
+    print("  1. Simulation")
+    print("  2. Automatic Rover Control")
+    mode = input("Select (1/2, default 1): ").strip()
     
     enable_rover = (mode == '2')
     
     if enable_rover:
-        print("\n🤖 AUTOMATIC ROVER CONTROL ENABLED")
-        rover_ip = input("🌐 Rover IP address (default 10.226.57.127): ").strip()
+        print("\n🤖 AUTOMATIC CONTROL ENABLED")
+        rover_ip = input("Rover IP (default 10.226.57.127): ").strip()
         rover_ip = rover_ip if rover_ip else "10.226.57.127"
-        rover_port = input("🔌 Rover port (default 8080): ").strip()
+        rover_port = input("Port (default 8080): ").strip()
         rover_port = int(rover_port) if rover_port else 8080
     else:
-        print("\n🔒 SIMULATION MODE - Commands will be displayed only")
+        print("\n🔒 SIMULATION MODE")
         rover_ip = "10.226.57.127"
         rover_port = 8080
     
-    # Ask for video source
     print("\n📹 Video Source:")
     print("  1. Video file")
-    print("  2. Webcam/USB camera")
-    print("  3. Live rover stream")
-    source_type = input("Select source (1/2/3, default 1): ").strip()
+    print("  2. Camera")
+    print("  3. Rover stream")
+    source_type = input("Select (1/2/3, default 1): ").strip()
     
     use_rover_stream = False
     video_source = None
     
     if source_type == '2':
-        camera_idx = input("📷 Camera index (default 0): ").strip()
+        camera_idx = input("Camera index (default 0): ").strip()
         video_source = int(camera_idx) if camera_idx else 0
-        print(f"✅ Using camera index: {video_source}")
+        print(f"✅ Camera: {video_source}")
     elif source_type == '3':
         use_rover_stream = True
         video_source = 'rover'
-        print(f"✅ Using live rover stream from {rover_ip}:{rover_port}")
+        print(f"✅ Rover stream: {rover_ip}:{rover_port}")
     else:
-        video_source = input("\n📹 Enter video file path: ").strip()
+        video_source = input("Video file path: ").strip()
         if not os.path.exists(video_source):
-            print(f"❌ Video file not found: {video_source}")
+            print(f"❌ Not found: {video_source}")
             return
-        print(f"✅ Using video file: {video_source}")
+        print(f"✅ Video: {video_source}")
     
-    # Initialize system with rover control
+    # Initialize system
     nav = LiveNavigationSystem(
         fx=600.0, fy=600.0, cx=320.0, cy=240.0,
         enable_rover_control=enable_rover,
@@ -1194,52 +1002,41 @@ def main():
     )
     
     # Load map
-    storage_dir = "keyframes_storage"
-    if not nav.load_map(storage_dir):
+    if not nav.load_map("keyframes_storage"):
         print("❌ Failed to load map")
         return
     
-    # Show available keyframes and ask for destination
+    # Select destination
     all_kf_ids = sorted(nav.all_keyframes.keys())
-    print(f"\n📍 Available Keyframes: {all_kf_ids}")
-    print(f"   Total: {len(all_kf_ids)} keyframes (from KF#{all_kf_ids[0]} to KF#{all_kf_ids[-1]})")
+    print(f"\n📍 Keyframes: {len(all_kf_ids)} (KF#{all_kf_ids[0]} to KF#{all_kf_ids[-1]})")
     
-    # Ask for destination
-    print(f"\n🎯 Select Destination Keyframe:")
-    dest_input = input(f"   Enter keyframe number (e.g., {all_kf_ids[-1]} for last): ").strip()
+    dest_input = input(f"Destination KF# (default {all_kf_ids[-1]}): ").strip()
     
     if dest_input:
         try:
             destination_kf = int(dest_input)
             if destination_kf in all_kf_ids:
                 nav.destination_kf_id = destination_kf
-                print(f"   ✅ Destination set to Keyframe #{destination_kf}")
+                print(f"✅ Destination: KF#{destination_kf}")
             else:
-                print(f"   ⚠️  Invalid keyframe. Using last keyframe: #{all_kf_ids[-1]}")
+                print(f"⚠️ Invalid, using KF#{all_kf_ids[-1]}")
                 nav.destination_kf_id = all_kf_ids[-1]
         except ValueError:
-            print(f"   ⚠️  Invalid input. Using last keyframe: #{all_kf_ids[-1]}")
+            print(f"⚠️ Invalid, using KF#{all_kf_ids[-1]}")
             nav.destination_kf_id = all_kf_ids[-1]
     else:
         nav.destination_kf_id = all_kf_ids[-1]
-        print(f"   ℹ️  No input. Using last keyframe: #{all_kf_ids[-1]}")
-    
-    # Run navigation
-    process_every = input("\n⚙️ Process every N frames (default 5): ").strip()
-    process_every = int(process_every) if process_every else 5
+        print(f"✅ Destination: KF#{all_kf_ids[-1]}")
     
     print("\n" + "="*80)
-    print("⚠️  NAVIGATION CONTROLS:")
-    print("   Press 'Q' to EMERGENCY STOP (press twice to exit)")
-    print("   Press 'R' to RESUME after emergency stop")
-    print("   Press 'ESC' to stop and exit immediately")
+    print("⚠️  Q=Emergency Stop | R=Resume | ESC=Exit")
     if enable_rover:
-        print("\n⚠️  ROVER WILL MOVE AUTOMATICALLY")
+        print("⚠️  ROVER WILL MOVE AUTOMATICALLY")
     else:
-        print("\nℹ️  Simulation mode - Commands displayed only")
+        print("ℹ️  Simulation mode")
     print("="*80 + "\n")
     
-    nav.run_live_navigation(video_source, process_every_n=process_every)
+    nav.run_live_navigation(video_source, process_every_n=5)
 
 
 if __name__ == "__main__":

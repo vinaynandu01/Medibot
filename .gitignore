@@ -48,6 +48,9 @@ Thumbs.db
 # Logs
 *.log
 
+# Email Configuration (contains sensitive credentials)
+backend/utils/email_config.py
+
 # Database
 *.db
 *.sqlite

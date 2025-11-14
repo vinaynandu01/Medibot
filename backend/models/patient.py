@@ -26,6 +26,9 @@ class Patient:
         self.created_at = datetime.now().isoformat()
         self.last_delivery = None
         self.delivery_count = 0
+        self.face_registered = False
+        self.face_image = None
+        self.face_embedding = None
 
     def to_dict(self) -> Dict:
         """Convert patient to dictionary"""
@@ -39,7 +42,10 @@ class Patient:
             'notes': self.notes,
             'created_at': self.created_at,
             'last_delivery': self.last_delivery,
-            'delivery_count': self.delivery_count
+            'delivery_count': self.delivery_count,
+            'face_registered': self.face_registered,
+            'face_image': self.face_image,
+            'face_embedding': self.face_embedding
         }
 
     @classmethod
@@ -57,13 +63,22 @@ class Patient:
         patient.created_at = data.get('created_at', datetime.now().isoformat())
         patient.last_delivery = data.get('last_delivery')
         patient.delivery_count = data.get('delivery_count', 0)
+        patient.face_registered = data.get('face_registered', False)
+        patient.face_image = data.get('face_image')
+        patient.face_embedding = data.get('face_embedding')
         return patient
 
 
 class PatientManager:
     """Manages patient data persistence and operations"""
 
-    def __init__(self, data_file: str = '/home/user/Medibot/data/patients/patients.json'):
+    def __init__(self, data_file: str = None):
+        if data_file is None:
+            # Get the base directory (Medibot root)
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            base_dir = os.path.dirname(base_dir)  # Go up one more level from backend
+            data_file = os.path.join(base_dir, 'data', 'patients', 'patients.json')
+        
         self.data_file = data_file
         self.patients: Dict[str, Patient] = {}
         self.ensure_data_file()
@@ -96,13 +111,23 @@ class PatientManager:
     def save_patients(self):
         """Save patients to JSON file"""
         try:
+            print(f"\n💾 SAVE_PATIENTS called")
+            print(f"💾 Total patients: {len(self.patients)}")
             patients_data = [p.to_dict() for p in self.patients.values()]
-
+            
+            # Check if any patient has face data
+            with_face = sum(1 for p in patients_data if p.get('face_registered'))
+            print(f"💾 Patients with face_registered: {with_face}")
+            
+            print(f"💾 Writing to file: {self.data_file}")
             with open(self.data_file, 'w') as f:
                 json.dump(patients_data, f, indent=2)
+            print(f"✅ Successfully saved {len(patients_data)} patients")
 
         except Exception as e:
-            print(f"Error saving patients: {e}")
+            print(f"❌ Error saving patients: {e}")
+            import traceback
+            traceback.print_exc()
 
     def add_patient(self, patient_data: Dict) -> Dict:
         """Add new patient"""
@@ -134,10 +159,15 @@ class PatientManager:
 
     def update_patient(self, patient_id: str, patient_data: Dict) -> Optional[Dict]:
         """Update patient information"""
+        print(f"\n🔍 UPDATE_PATIENT called for patient_id: {patient_id}")
+        print(f"🔍 patient_data keys: {list(patient_data.keys())}")
+        
         if patient_id not in self.patients:
+            print(f"❌ Patient {patient_id} not found in self.patients")
             return None
 
         patient = self.patients[patient_id]
+        print(f"✅ Found patient: {patient.name}")
 
         # Update fields
         if 'name' in patient_data:
@@ -152,9 +182,23 @@ class PatientManager:
             patient.schedule = patient_data['schedule']
         if 'notes' in patient_data:
             patient.notes = patient_data['notes']
+        if 'face_registered' in patient_data:
+            print(f"📸 Setting face_registered = {patient_data['face_registered']}")
+            patient.face_registered = patient_data['face_registered']
+        if 'face_image' in patient_data:
+            image_len = len(patient_data['face_image']) if patient_data['face_image'] else 0
+            print(f"📸 Setting face_image (length: {image_len})")
+            patient.face_image = patient_data['face_image']
+        if 'face_embedding' in patient_data:
+            embed_len = len(patient_data['face_embedding']) if patient_data['face_embedding'] else 0
+            print(f"📸 Setting face_embedding (length: {embed_len})")
+            patient.face_embedding = patient_data['face_embedding']
 
+        print(f"💾 Calling save_patients()...")
         self.save_patients()
-        return patient.to_dict()
+        result = patient.to_dict()
+        print(f"✅ Patient updated, returning dict with face_registered={result.get('face_registered')}")
+        return result
 
     def delete_patient(self, patient_id: str) -> bool:
         """Delete patient"""

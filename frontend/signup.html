@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sign Up - Medibot</title>
+    <link rel="stylesheet" href="css/styles.css" />
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      :root {
+        --primary-color: #667eea;
+        --secondary-color: #764ba2;
+        --success-color: #4caf50;
+        --danger-color: #f44336;
+        --text-dark: #2c3e50;
+        --text-light: #7f8c8d;
+        --bg-light: #f5f7fa;
+        --white: #ffffff;
+        --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.15);
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          Oxygen, Ubuntu, Cantarell, sans-serif;
+        background: linear-gradient(
+          135deg,
+          var(--primary-color) 0%,
+          var(--secondary-color) 100%
+        );
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+      }
+
+      .container {
+        max-width: 1000px;
+        width: 100%;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        background: var(--white);
+        border-radius: 20px;
+        overflow: hidden;
+        box-shadow: var(--shadow-lg);
+        animation: slideIn 0.5s ease;
+      }
+
+      @keyframes slideIn {
+        from {
+          opacity: 0;
+          transform: translateY(30px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .left-section {
+        background: linear-gradient(
+          135deg,
+          var(--primary-color) 0%,
+          var(--secondary-color) 100%
+        );
+        padding: 60px 40px;
+        color: var(--white);
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .left-section::before {
+        content: "";
+        position: absolute;
+        top: -50%;
+        right: -50%;
+        width: 200%;
+        height: 200%;
+        background: radial-gradient(
+          circle,
+          rgba(255, 255, 255, 0.1) 1px,
+          transparent 1px
+        );
+        background-size: 50px 50px;
+        animation: moveBackground 20s linear infinite;
+      }
+
+      @keyframes moveBackground {
+        0% {
+          transform: translate(0, 0);
+        }
+        100% {
+          transform: translate(50px, 50px);
+        }
+      }
+
+      .logo {
+        position: relative;
+        z-index: 1;
+        margin-bottom: 30px;
+      }
+
+      .logo h1 {
+        font-size: 3em;
+        margin-bottom: 10px;
+        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
+      }
+
+      .logo p {
+        font-size: 1.1em;
+        opacity: 0.9;
+      }
+
+      .feature-list {
+        position: relative;
+        z-index: 1;
+        margin-top: 40px;
+      }
+
+      .feature-item {
+        display: flex;
+        align-items: center;
+        margin-bottom: 20px;
+        padding: 15px;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 10px;
+        backdrop-filter: blur(10px);
+      }
+
+      .feature-icon {
+        font-size: 1.5em;
+        margin-right: 15px;
+      }
+
+      .right-section {
+        padding: 60px 40px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+      }
+
+      .form-header {
+        margin-bottom: 30px;
+      }
+
+      .form-header h2 {
+        color: var(--text-dark);
+        font-size: 2em;
+        margin-bottom: 10px;
+      }
+
+      .form-header p {
+        color: var(--text-light);
+      }
+
+      .form-group {
+        margin-bottom: 20px;
+      }
+
+      .form-group label {
+        display: block;
+        color: var(--text-dark);
+        font-weight: 600;
+        margin-bottom: 8px;
+        font-size: 0.95em;
+      }
+
+      .form-group input {
+        width: 100%;
+        padding: 14px 18px;
+        border: 2px solid #e0e0e0;
+        border-radius: 10px;
+        font-size: 1em;
+        transition: all 0.3s ease;
+        background: var(--bg-light);
+      }
+
+      .form-group input:focus {
+        outline: none;
+        border-color: var(--primary-color);
+        background: var(--white);
+        box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
+      }
+
+      .password-strength {
+        height: 4px;
+        background: #e0e0e0;
+        border-radius: 2px;
+        margin-top: 8px;
+        overflow: hidden;
+      }
+
+      .password-strength-bar {
+        height: 100%;
+        width: 0;
+        transition: all 0.3s ease;
+      }
+
+      .password-strength-bar.weak {
+        width: 33%;
+        background: var(--danger-color);
+      }
+
+      .password-strength-bar.medium {
+        width: 66%;
+        background: var(--warning-color);
+      }
+
+      .password-strength-bar.strong {
+        width: 100%;
+        background: var(--success-color);
+      }
+
+      .password-hint {
+        font-size: 0.85em;
+        color: var(--text-light);
+        margin-top: 4px;
+      }
+
+      .btn {
+        width: 100%;
+        padding: 16px;
+        border: none;
+        border-radius: 10px;
+        font-size: 1.05em;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+
+      .btn-primary {
+        background: linear-gradient(
+          135deg,
+          var(--primary-color) 0%,
+          var(--secondary-color) 100%
+        );
+        color: var(--white);
+        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+      }
+
+      .btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
+      }
+
+      .btn-primary:active {
+        transform: translateY(0);
+      }
+
+      .btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        transform: none !important;
+      }
+
+      .message {
+        padding: 14px;
+        border-radius: 10px;
+        margin-bottom: 20px;
+        font-size: 0.95em;
+        display: none;
+        animation: slideDown 0.3s ease;
+      }
+
+      @keyframes slideDown {
+        from {
+          opacity: 0;
+          transform: translateY(-10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .message.success {
+        background: #d4edda;
+        color: #155724;
+        border: 1px solid #c3e6cb;
+      }
+
+      .message.error {
+        background: #f8d7da;
+        color: #721c24;
+        border: 1px solid #f5c6cb;
+      }
+
+      .text-center {
+        text-align: center;
+      }
+
+      .link {
+        color: var(--primary-color);
+        text-decoration: none;
+        font-weight: 600;
+        transition: all 0.3s ease;
+      }
+
+      .link:hover {
+        color: var(--secondary-color);
+        text-decoration: underline;
+      }
+
+      .divider {
+        margin: 25px 0;
+        text-align: center;
+        color: var(--text-light);
+        position: relative;
+      }
+
+      .divider::before,
+      .divider::after {
+        content: "";
+        position: absolute;
+        top: 50%;
+        width: 40%;
+        height: 1px;
+        background: #e0e0e0;
+      }
+
+      .divider::before {
+        left: 0;
+      }
+
+      .divider::after {
+        right: 0;
+      }
+
+      .otp-section {
+        display: none;
+      }
+
+      .otp-input-group {
+        display: flex;
+        gap: 10px;
+        justify-content: center;
+        margin: 30px 0;
+      }
+
+      .otp-input {
+        width: 50px;
+        height: 60px;
+        text-align: center;
+        font-size: 1.5em;
+        font-weight: bold;
+        border: 2px solid #e0e0e0;
+        border-radius: 10px;
+        background: var(--bg-light);
+        transition: all 0.3s ease;
+      }
+
+      .otp-input:focus {
+        outline: none;
+        border-color: var(--primary-color);
+        background: var(--white);
+        box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
+      }
+
+      .spinner {
+        border: 3px solid #f3f3f3;
+        border-top: 3px solid var(--primary-color);
+        border-radius: 50%;
+        width: 20px;
+        height: 20px;
+        animation: spin 1s linear infinite;
+        display: inline-block;
+        margin-left: 10px;
+      }
+
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+
+      @media (max-width: 768px) {
+        .container {
+          grid-template-columns: 1fr;
+        }
+
+        .left-section {
+          padding: 40px 30px;
+        }
+
+        .right-section {
+          padding: 40px 30px;
+        }
+
+        .logo h1 {
+          font-size: 2.5em;
+        }
+
+        .otp-input {
+          width: 45px;
+          height: 55px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="left-section">
+        <div class="logo">
+          <h1 style="font-size: 2rem">🤖 MEDIBOT</h1>
+          <p style="font-size: 0.95rem">Medication Delivery System</p>
+        </div>
+        <div class="feature-list">
+          <div class="feature-item">
+            <span class="feature-icon">✨</span>
+            <div>
+              <strong>Quick Setup</strong><br />
+              <span style="font-size: 0.9em; opacity: 0.9"
+                >Get started in minutes</span
+              >
+            </div>
+          </div>
+          <div class="feature-item">
+            <span class="feature-icon">🔐</span>
+            <div>
+              <strong>Secure Platform</strong><br />
+              <span style="font-size: 0.9em; opacity: 0.9"
+                >Email verification & 2FA protection</span
+              >
+            </div>
+          </div>
+          <div class="feature-item">
+            <span class="feature-icon">🚀</span>
+            <div>
+              <strong>Advanced Features</strong><br />
+              <span style="font-size: 0.9em; opacity: 0.9"
+                >Full control of delivery system</span
+              >
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="right-section">
+        <!-- Signup Form -->
+        <div id="signupForm">
+          <div class="form-header">
+            <h2>Create Account</h2>
+            <p>Join Medibot today</p>
+          </div>
+
+          <div id="message" class="message"></div>
+
+          <form id="registrationForm">
+            <div class="form-group">
+              <label for="fullName">Full Name</label>
+              <input
+                type="text"
+                id="fullName"
+                required
+                placeholder="John Doe"
+              />
+            </div>
+            <div class="form-group">
+              <label for="email">Email Address</label>
+              <input
+                type="email"
+                id="email"
+                required
+                placeholder="you@example.com"
+              />
+            </div>
+            <div class="form-group">
+              <label for="password">Password</label>
+              <input
+                type="password"
+                id="password"
+                required
+                placeholder="Create a strong password"
+              />
+              <div class="password-strength">
+                <div class="password-strength-bar" id="strengthBar"></div>
+              </div>
+              <p class="password-hint" id="strengthText">
+                At least 8 characters
+              </p>
+            </div>
+            <div class="form-group">
+              <label for="confirmPassword">Confirm Password</label>
+              <input
+                type="password"
+                id="confirmPassword"
+                required
+                placeholder="Confirm your password"
+              />
+            </div>
+            <button type="submit" class="btn btn-primary" id="signupBtn">
+              Create Account
+            </button>
+          </form>
+
+          <div class="divider">OR</div>
+
+          <p class="text-center">
+            Already have an account?
+            <a href="login.html" class="link">Sign in here</a>
+          </p>
+        </div>
+
+        <!-- OTP Verification -->
+        <div id="otpForm" class="otp-section">
+          <div class="form-header">
+            <h2>Verify Your Email</h2>
+            <p>Enter the 6-digit code sent to your email</p>
+          </div>
+
+          <div id="otpMessage" class="message"></div>
+
+          <form id="otpVerificationForm">
+            <div class="otp-input-group">
+              <input
+                type="text"
+                class="otp-input"
+                maxlength="1"
+                pattern="[0-9]"
+                required
+              />
+              <input
+                type="text"
+                class="otp-input"
+                maxlength="1"
+                pattern="[0-9]"
+                required
+              />
+              <input
+                type="text"
+                class="otp-input"
+                maxlength="1"
+                pattern="[0-9]"
+                required
+              />
+              <input
+                type="text"
+                class="otp-input"
+                maxlength="1"
+                pattern="[0-9]"
+                required
+              />
+              <input
+                type="text"
+                class="otp-input"
+                maxlength="1"
+                pattern="[0-9]"
+                required
+              />
+              <input
+                type="text"
+                class="otp-input"
+                maxlength="1"
+                pattern="[0-9]"
+                required
+              />
+            </div>
+
+            <button type="submit" class="btn btn-primary" id="verifyOtpBtn">
+              Verify & Complete
+            </button>
+          </form>
+
+          <p class="text-center" style="margin-top: 20px">
+            Didn't receive the code?
+            <span class="link" id="resendOtp" style="cursor: pointer"
+              >Resend</span
+            >
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const API_URL = "http://localhost:5000/api";
+      let currentEmail = "";
+
+      // Password strength checker
+      const passwordInput = document.getElementById("password");
+      const strengthBar = document.getElementById("strengthBar");
+      const strengthText = document.getElementById("strengthText");
+
+      passwordInput.addEventListener("input", () => {
+        const password = passwordInput.value;
+        let strength = 0;
+
+        if (password.length >= 8) strength++;
+        if (password.match(/[a-z]/) && password.match(/[A-Z]/)) strength++;
+        if (password.match(/[0-9]/)) strength++;
+        if (password.match(/[^a-zA-Z0-9]/)) strength++;
+
+        strengthBar.className = "password-strength-bar";
+        if (strength === 0) {
+          strengthText.textContent = "At least 8 characters";
+        } else if (strength <= 2) {
+          strengthBar.classList.add("weak");
+          strengthText.textContent = "Weak password";
+        } else if (strength === 3) {
+          strengthBar.classList.add("medium");
+          strengthText.textContent = "Medium password";
+        } else {
+          strengthBar.classList.add("strong");
+          strengthText.textContent = "Strong password";
+        }
+      });
+
+      // Message display function
+      function showMessage(elementId, message, type) {
+        const messageEl = document.getElementById(elementId);
+        messageEl.textContent = message;
+        messageEl.className = `message ${type}`;
+        messageEl.style.display = "block";
+      }
+
+      function hideMessage(elementId) {
+        document.getElementById(elementId).style.display = "none";
+      }
+
+      // OTP input handling
+      const otpInputs = document.querySelectorAll(".otp-input");
+      otpInputs.forEach((input, index) => {
+        input.addEventListener("input", (e) => {
+          if (e.target.value.length === 1 && index < otpInputs.length - 1) {
+            otpInputs[index + 1].focus();
+          }
+        });
+
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Backspace" && e.target.value === "" && index > 0) {
+            otpInputs[index - 1].focus();
+          }
+        });
+
+        input.addEventListener("paste", (e) => {
+          e.preventDefault();
+          const pasteData = e.clipboardData.getData("text");
+          const digits = pasteData.match(/\d/g);
+          if (digits) {
+            digits.slice(0, 6).forEach((digit, i) => {
+              if (otpInputs[i]) {
+                otpInputs[i].value = digit;
+              }
+            });
+          }
+        });
+      });
+
+      // Registration form submission
+      document
+        .getElementById("registrationForm")
+        .addEventListener("submit", async (e) => {
+          e.preventDefault();
+
+          const fullName = document.getElementById("fullName").value;
+          const email = document.getElementById("email").value;
+          const password = document.getElementById("password").value;
+          const confirmPassword =
+            document.getElementById("confirmPassword").value;
+          const signupBtn = document.getElementById("signupBtn");
+
+          if (password !== confirmPassword) {
+            showMessage("message", "Passwords do not match", "error");
+            return;
+          }
+
+          signupBtn.disabled = true;
+          signupBtn.innerHTML =
+            'Creating Account... <span class="spinner"></span>';
+          hideMessage("message");
+
+          try {
+            const response = await fetch(`${API_URL}/auth/register`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ email, password, full_name: fullName }),
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+              currentEmail = email;
+              showMessage("message", data.message, "success");
+
+              setTimeout(() => {
+                document.getElementById("signupForm").style.display = "none";
+                document.getElementById("otpForm").style.display = "block";
+                otpInputs[0].focus();
+              }, 1500);
+            } else {
+              showMessage("message", data.message, "error");
+            }
+          } catch (error) {
+            showMessage(
+              "message",
+              "Connection error. Please try again.",
+              "error"
+            );
+          } finally {
+            signupBtn.disabled = false;
+            signupBtn.innerHTML = "Create Account";
+          }
+        });
+
+      // OTP verification
+      document
+        .getElementById("otpVerificationForm")
+        .addEventListener("submit", async (e) => {
+          e.preventDefault();
+
+          const otp = Array.from(otpInputs)
+            .map((input) => input.value)
+            .join("");
+          const verifyBtn = document.getElementById("verifyOtpBtn");
+
+          if (otp.length !== 6) {
+            showMessage("otpMessage", "Please enter all 6 digits", "error");
+            return;
+          }
+
+          verifyBtn.disabled = true;
+          verifyBtn.innerHTML = 'Verifying... <span class="spinner"></span>';
+          hideMessage("otpMessage");
+
+          try {
+            const response = await fetch(
+              `${API_URL}/auth/verify-registration`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ email: currentEmail, otp }),
+              }
+            );
+
+            const data = await response.json();
+
+            if (data.success) {
+              showMessage(
+                "otpMessage",
+                "Account verified! Redirecting to login...",
+                "success"
+              );
+
+              setTimeout(() => {
+                window.location.href = "login.html";
+              }, 2000);
+            } else {
+              showMessage("otpMessage", data.message, "error");
+              otpInputs.forEach((input) => (input.value = ""));
+              otpInputs[0].focus();
+            }
+          } catch (error) {
+            showMessage(
+              "otpMessage",
+              "Connection error. Please try again.",
+              "error"
+            );
+          } finally {
+            verifyBtn.disabled = false;
+            verifyBtn.innerHTML = "Verify & Complete";
+          }
+        });
+
+      // Resend OTP
+      document
+        .getElementById("resendOtp")
+        .addEventListener("click", async () => {
+          try {
+            const response = await fetch(`${API_URL}/auth/resend-otp`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ email: currentEmail }),
+            });
+
+            const data = await response.json();
+            showMessage(
+              "otpMessage",
+              data.message,
+              data.success ? "success" : "error"
+            );
+          } catch (error) {
+            showMessage("otpMessage", "Failed to resend code", "error");
+          }
+        });
+    </script>
+  </body>
+</html>

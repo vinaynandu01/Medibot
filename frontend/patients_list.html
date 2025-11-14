@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Patients Directory - Medibot</title>
+    <link rel="stylesheet" href="/css/styles.css" />
+    <link rel="stylesheet" href="/css/patients_list.css" />
+  </head>
+  <body>
+    <!-- Header -->
+    <header class="main-header">
+      <div class="header-content">
+        <div class="logo-section">
+          <h1>🏥 MEDIBOT</h1>
+          <span class="subtitle">Patient Directory</span>
+        </div>
+        <nav class="header-nav">
+          <a href="/dashboard" class="nav-link">
+            <span class="icon">📊</span>
+            Dashboard
+          </a>
+          <a href="/patients_list.html" class="nav-link active">
+            <span class="icon">👥</span>
+            Patients
+          </a>
+        </nav>
+        <div class="user-section">
+          <span class="user-name" id="userName">Loading...</span>
+          <button class="btn btn-secondary btn-small" onclick="logout()">
+            Logout
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="patients-directory">
+      <div class="directory-header">
+        <div class="header-info">
+          <h2>All Patients</h2>
+          <p class="subtitle">Browse and manage patient records</p>
+        </div>
+        <div class="header-actions">
+          <div class="search-box">
+            <span class="icon">🔍</span>
+            <input
+              type="text"
+              id="searchInput"
+              placeholder="Search patients..."
+            />
+          </div>
+          <button class="btn btn-primary" id="addPatientBtn">
+            <span class="icon">➕</span>
+            Add New Patient
+          </button>
+        </div>
+      </div>
+
+      <!-- Stats Bar -->
+      <div class="stats-bar">
+        <div class="stat-card">
+          <div class="stat-icon">👥</div>
+          <div class="stat-info">
+            <div class="stat-value" id="totalPatients">0</div>
+            <div class="stat-label">Total Patients</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">✅</div>
+          <div class="stat-info">
+            <div class="stat-value" id="verifiedFaces">0</div>
+            <div class="stat-label">Face Verified</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">📍</div>
+          <div class="stat-info">
+            <div class="stat-value" id="withLocation">0</div>
+            <div class="stat-label">With Location</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">🚀</div>
+          <div class="stat-info">
+            <div class="stat-value" id="totalDeliveries">0</div>
+            <div class="stat-label">Total Deliveries</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Filters -->
+      <div class="filters-section">
+        <button class="filter-btn active" data-filter="all">All</button>
+        <button class="filter-btn" data-filter="verified">Face Verified</button>
+        <button class="filter-btn" data-filter="pending">
+          Pending Verification
+        </button>
+        <button class="filter-btn" data-filter="location">Has Location</button>
+      </div>
+
+      <!-- Patients Grid -->
+      <div class="patients-grid" id="patientsGrid">
+        <!-- Patient cards will be inserted here -->
+      </div>
+
+      <!-- Empty State -->
+      <div class="empty-state" id="emptyState" style="display: none">
+        <div class="empty-icon">👥</div>
+        <h3>No Patients Found</h3>
+        <p>Start by adding your first patient</p>
+        <button
+          class="btn btn-primary"
+          onclick="document.getElementById('addPatientBtn').click()"
+        >
+          Add Patient
+        </button>
+      </div>
+    </main>
+
+    <!-- Patient Modal (Add/Edit) -->
+    <div id="patientModal" class="modal">
+      <div class="modal-content modal-large">
+        <div class="modal-header">
+          <h2 id="modalTitle">Add New Patient</h2>
+          <button class="close-btn" id="closeModal">&times;</button>
+        </div>
+        <form id="patientForm">
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="patientName">Patient Name *</label>
+              <input type="text" id="patientName" required />
+            </div>
+            <div class="form-group">
+              <label for="roomNumber">Room Number *</label>
+              <input type="text" id="roomNumber" required />
+            </div>
+            <div class="form-group">
+              <label for="medication">Medication *</label>
+              <input type="text" id="medication" required />
+            </div>
+            <div class="form-group">
+              <label for="schedule">Schedule</label>
+              <input
+                type="text"
+                id="schedule"
+                placeholder="e.g., Daily at 9 AM"
+              />
+            </div>
+            <div class="form-group">
+              <label for="keyframeId">Location (Keyframe)</label>
+              <select id="keyframeId">
+                <option value="">No location assigned</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="notes">Notes</label>
+            <textarea id="notes" rows="3"></textarea>
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn btn-secondary" id="cancelBtn">
+              Cancel
+            </button>
+            <button type="submit" class="btn btn-primary">Save Patient</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast"></div>
+
+    <script src="/js/config.js"></script>
+    <script src="/js/api.js"></script>
+    <script src="/js/patients_list.js"></script>
+  </body>
+</html>

@@ -1,0 +1,35 @@
+[
+  {
+    "user_id": "ec1e6539-c26a-49eb-b934-12306e57fa9f",
+    "email": "nanduvinay719@gmail.com",
+    "password_hash": "9e0a1df423e6b4917da84bbf52e3543f6718a7f793e88c2883d2c1198bdcf568",
+    "full_name": "rapaka vinay",
+    "created_at": "2025-11-14T10:49:40.605846",
+    "is_verified": true,
+    "last_login": "2025-11-14T13:11:51.385827",
+    "failed_login_attempts": 0,
+    "locked_until": null
+  },
+  {
+    "user_id": "862e4ef3-4489-4be6-bd1c-124119519bc9",
+    "email": "somashashank29@gmail",
+    "password_hash": "8e433890c9c9cf0ec070cc00afe77673a38c852b4ba1c5eae0c03201a799b6b9",
+    "full_name": "shashank",
+    "created_at": "2025-11-14T11:03:14.625484",
+    "is_verified": false,
+    "last_login": null,
+    "failed_login_attempts": 0,
+    "locked_until": null
+  },
+  {
+    "user_id": "b978f5fc-b7cd-47bc-a9c6-53317921cf6c",
+    "email": "somashashank29@gmail.com",
+    "password_hash": "cb8e7d751c46486a0ef93f3f22ef59e433784f0fb796750c46cb3b7adb2e3e89",
+    "full_name": "shashank",
+    "created_at": "2025-11-14T11:04:27.366277",
+    "is_verified": true,
+    "last_login": "2025-11-14T11:05:34.798018",
+    "failed_login_attempts": 0,
+    "locked_until": null
+  }
+]

@@ -30,7 +30,7 @@ class RoverAPI:
         try:
             response = requests.post(
                 f"{self.base_url}/move",
-                json={'direction': direction},
+                data={'direction': direction},
                 timeout=10
             )
             response.raise_for_status()
@@ -47,7 +47,7 @@ class RoverAPI:
             # Send stop command
             response = requests.post(
                 f"{self.base_url}/move",
-                json={'direction': 'stop'},
+                data={'direction': 'stop'},
                 timeout=5
             )
             response.raise_for_status()

@@ -7,7 +7,7 @@ import json
 import pickle
 import os
 import numpy as np
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 
 class MapAPI:
@@ -16,10 +16,15 @@ class MapAPI:
     def __init__(self, keyframes_dir: str = None):
         # Try new location first, fallback to old location
         if keyframes_dir is None:
-            if os.path.exists('/home/user/Medibot/data/keyframes/keyframes_index.json'):
-                keyframes_dir = '/home/user/Medibot/data/keyframes'
+            # Get the base directory (Medibot root)
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            base_dir = os.path.dirname(base_dir)  # Go up one more level from backend
+            keyframes_path = os.path.join(base_dir, 'data', 'keyframes')
+            
+            if os.path.exists(os.path.join(keyframes_path, 'keyframes_index.json')):
+                keyframes_dir = keyframes_path
             else:
-                keyframes_dir = '/home/user/Medibot/keyframes_storage'
+                keyframes_dir = os.path.join(base_dir, 'keyframes_storage')
 
         self.keyframes_dir = keyframes_dir
         self.keyframes_index = None
@@ -39,11 +44,13 @@ class MapAPI:
             with open(direction_path, 'r') as f:
                 self.direction_map = json.load(f)
 
-            print(f"Loaded {len(self.keyframes_index)} keyframes")
+            # Count keyframes properly
+            num_keyframes = len(self.keyframes_index.get('keyframes', {}))
+            print(f"Loaded {num_keyframes} keyframes")
 
         except Exception as e:
             print(f"Error loading map data: {e}")
-            self.keyframes_index = []
+            self.keyframes_index = {}
             self.direction_map = {}
 
     def get_keyframes(self) -> List[Dict]:
@@ -57,9 +64,11 @@ class MapAPI:
             return []
 
         keyframes = []
-        for idx, kf in enumerate(self.keyframes_index):
+        keyframes_dict = self.keyframes_index.get('keyframes', {})
+        
+        for idx_str, kf in keyframes_dict.items():
             keyframes.append({
-                'id': idx,
+                'id': int(idx_str),
                 'pose': kf.get('pose', [0, 0, 0]),
                 'num_features': kf.get('num_features', 0),
                 'timestamp': kf.get('timestamp', '')
@@ -69,8 +78,10 @@ class MapAPI:
 
     def get_keyframe_by_id(self, keyframe_id: int) -> Optional[Dict]:
         """Get specific keyframe by ID"""
-        if 0 <= keyframe_id < len(self.keyframes_index):
-            kf = self.keyframes_index[keyframe_id]
+        keyframes_dict = self.keyframes_index.get('keyframes', {})
+        kf = keyframes_dict.get(str(keyframe_id))
+        
+        if kf:
             return {
                 'id': keyframe_id,
                 'pose': kf.get('pose', [0, 0, 0]),
@@ -89,10 +100,17 @@ class MapAPI:
         features = []
 
         try:
-            for idx, kf_info in enumerate(self.keyframes_index):
-                # Load pickled keyframe
-                pkl_file = kf_info.get('file', f'keyframe_{idx:06d}.pkl')
-                pkl_path = os.path.join(self.keyframes_dir, pkl_file)
+            keyframes_dict = self.keyframes_index.get('keyframes', {})
+            
+            for idx_str, kf_info in keyframes_dict.items():
+                idx = int(idx_str)
+                # Get filename from keyframes_index
+                pkl_file = kf_info.get('filename', f'keyframe_{idx:06d}.pkl')
+                
+                # Handle both absolute and relative paths
+                # If path contains subdirectory reference, extract just the filename
+                pkl_filename = os.path.basename(pkl_file)
+                pkl_path = os.path.join(self.keyframes_dir, pkl_filename)
 
                 if os.path.exists(pkl_path):
                     with open(pkl_path, 'rb') as f:

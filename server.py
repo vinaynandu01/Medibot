@@ -325,7 +325,7 @@ class Rover:
 # LOW LATENCY Video Streaming
 # ============================== 
 class VideoStream:
-    def _init_(self):
+    def __init__(self):
         self.output_frame = None
         self.lock = threading.Lock()
         self.streaming = False
